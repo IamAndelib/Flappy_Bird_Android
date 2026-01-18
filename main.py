@@ -245,8 +245,13 @@ class Button:
 class Particle(pygame.sprite.Sprite):
     CACHE = {}
 
-    def __init__(self, x, y, color):
+    def __init__(self):
         super().__init__()
+        self.active = False
+        self.image = pygame.Surface((1, 1))
+        self.rect = self.image.get_rect()
+
+    def reset(self, x, y, color):
         size = random.randint(4, 8)
         key = (size, color)
         if key not in Particle.CACHE:
@@ -256,19 +261,40 @@ class Particle(pygame.sprite.Sprite):
         
         self.image = Particle.CACHE[key]
         self.rect = self.image.get_rect(center=(x, y))
-        self.vx, self.vy, self.life = random.uniform(
-            -2, 2), random.uniform(-2, 2), 1.0
+        self.vx, self.vy = random.uniform(-150, 150), random.uniform(-150, 150)
+        self.life = 1.0
+        self.active = True
 
     def update(self, dt):
+        if not self.active:
+            return
         self.life -= dt
-        self.rect.x, self.rect.y = self.rect.x + self.vx, self.rect.y + self.vy
+        self.rect.x += self.vx * dt
+        self.rect.y += self.vy * dt
         if self.life <= 0:
+            self.active = False
             self.kill()
         else:
             self.image.set_alpha(int(255 * self.life))
 
 
 # --- Object Instantiation ---
+# Particle Pool
+PARTICLE_POOL_SIZE = 100
+particle_pool = [Particle() for _ in range(PARTICLE_POOL_SIZE)]
+
+
+def spawn_particles(x, y, color, count):
+    spawned = 0
+    for p in particle_pool:
+        if not p.active:
+            p.reset(x, y, color)
+            particle_group.add(p)
+            spawned += 1
+            if spawned >= count:
+                break
+
+
 bird_group = pygame.sprite.GroupSingle(Bird(100, SCREEN_HEIGHT//2))
 pipe_group = pygame.sprite.Group()
 particle_group = pygame.sprite.Group()
@@ -276,6 +302,7 @@ flappy = bird_group.sprite
 button = Button(SCREEN_WIDTH//2 - 50, SCREEN_HEIGHT//2 - 100, button_img)
 
 # Global State
+exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
@@ -286,11 +313,21 @@ paused_text_surf = render_score("PAUSED", ORANGE)
 hit_played = die_played = new_record_set = False
 game_over_surf = None
 
+# Android specific: Try to keep the screen on
+if IS_ANDROID:
+    try:
+        import android
+        android.wakelock(True)
+    except ImportError:
+        pass
+
 # --- Main Game Loop ---
 run = True
 while run:
     dt = min(clock.tick(FPS) / 1000.0, 0.05)
     evs = pygame.event.get()
+    if exit_timer > 0:
+        exit_timer -= dt
 
     ox = oy = 0
     if shake_duration > 0:
@@ -376,9 +413,7 @@ while run:
                 intensity = current_scroll_speed / SCROLL_SPEED
                 particle_count = int(15 * intensity)
 
-                for _ in range(particle_count):
-                    particle_group.add(
-                        Particle(flappy.rect.centerx, flappy.rect.centery, WHITE))
+                spawn_particles(flappy.rect.centerx, flappy.rect.centery, WHITE, particle_count)
 
                 shake_duration, flash_alpha, hit_played = SHAKE_DURATION * intensity, 255, True
 
@@ -497,10 +532,20 @@ while run:
                     game_state = STATE_PLAYING
                     music_channel.unpause()
                 elif game_state == STATE_MENU:
-                    run = False
+                    if exit_timer > 0:
+                        run = False
+                    else:
+                        exit_timer = 2.0  # Show exit message for 2 seconds
+                elif game_state == STATE_GAMEOVER:
+                    reset_game()
             if e.key in (K_RETURN, K_KP_ENTER):
                 if game_state == STATE_GAMEOVER:
                     reset_game()
                     swoosh_fx.play()
+    
+    if exit_timer > 0 and game_state == STATE_MENU:
+        exit_msg = font.render("TAP BACK AGAIN TO EXIT", True, WHITE)
+        render_surface.blit(exit_msg, exit_msg.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 100)))
+
     pygame.display.flip()
 pygame.quit()
