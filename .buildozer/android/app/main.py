@@ -329,6 +329,7 @@ class Bird(pygame.sprite.Sprite):
         self.index = self.animation_timer = self.hover_timer = self.vel = self.vel_x = self.angle = 0
         self.image, self.mask = self.images[0], self.masks[0]
         self.rect = self.image.get_rect(center=(x, y))
+        self.pos_x, self.pos_y = float(self.rect.x), float(self.rect.y)
         self.rotation_cache, self.mask_cache = {}, {}
         # Pre-cache common flight angles
         for idx in range(len(self.images)):
@@ -340,8 +341,9 @@ class Bird(pygame.sprite.Sprite):
     def update(self, dt):
         if game_state == STATE_INIT:
             self.hover_timer += dt
-            self.rect.centery = (SCREEN_HEIGHT / 2) + \
+            self.pos_y = (SCREEN_HEIGHT / 2) + \
                 math.sin(self.hover_timer * 8) * 15
+            self.rect.centery = int(self.pos_y)
             self.angle = 0
             # Animation for wings while hovering
             self.animation_timer += dt
@@ -355,13 +357,17 @@ class Bird(pygame.sprite.Sprite):
             
             self.vel = min(self.vel + eff_gravity * dt, MAX_FALL_SPEED)
             if self.rect.bottom < GROUND_LEVEL:
-                self.rect.y += self.vel * dt
-                self.rect.x += self.vel_x * dt
+                self.pos_y += self.vel * dt
+                self.pos_x += self.vel_x * dt
                 # Apply "air resistance" to horizontal movement
                 if game_state == STATE_GAMEOVER:
                     self.vel_x *= (1.0 - 5.0 * dt)
+                
+                self.rect.x, self.rect.y = int(self.pos_x), int(self.pos_y)
             else:
-                self.rect.bottom, self.vel, self.vel_x = GROUND_LEVEL, 0, 0
+                self.rect.bottom = GROUND_LEVEL
+                self.pos_y = float(self.rect.y)
+                self.vel, self.vel_x = 0, 0
 
         if game_state == STATE_PLAYING:
             if self.vel < 0:
@@ -415,19 +421,22 @@ class Pipe(pygame.sprite.Sprite):
             self.rect.bottomleft = [x, y - gap / 2]
         else:
             self.rect.topleft = [x, y + gap / 2]
-        self.phase, self.freq, self.base_y = offset, freq, self.rect.y
+        self.pos_x, self.pos_y = float(self.rect.x), float(self.rect.y)
+        self.phase, self.freq, self.base_y = offset, freq, float(self.rect.y)
         self.current_amplitude, self.scored = 0.0, False
 
     def update(self, dt, scroll_speed):
-        self.rect.x -= scroll_speed * dt
+        self.pos_x -= scroll_speed * dt
         # Optimization: only calculate oscillation if visible on screen
         if score >= 20 and self.rect.left < SCREEN_WIDTH:
             target_amplitude = min((score - 20) * 5 + 10, 50)
             if self.current_amplitude < target_amplitude:
                 self.current_amplitude += 20 * dt
             self.phase += dt * self.freq * 1.5
-            self.rect.y = self.base_y + \
+            self.pos_y = self.base_y + \
                 math.sin(self.phase) * self.current_amplitude
+        
+        self.rect.x, self.rect.y = int(self.pos_x), int(self.pos_y)
         
         if self.rect.right < 0:
             self.kill()
@@ -443,9 +452,8 @@ class Button:
         self.pressed_rect = self.pressed_img.get_rect(center=self.rect.center)
         self.is_pressed = False
 
-    def handle_event(self, event):
+    def handle_event(self, event, v_pos):
         triggered = False
-        v_pos = get_virtual_mouse_pos()
         over_button = self.rect.collidepoint(v_pos)
 
         if event.type == MOUSEBUTTONDOWN or event.type == pygame.FINGERDOWN:
@@ -458,12 +466,9 @@ class Button:
                 triggered = True
             self.is_pressed = False
         
-        # If finger moves away while pressed, we can visually unpress 
-        # but technically we only reset is_pressed on lift (standard mobile behavior)
         return triggered
 
-    def draw(self, surface):
-        v_pos = get_virtual_mouse_pos()
+    def draw(self, surface, v_pos):
         over_button = self.rect.collidepoint(v_pos)
 
         # Visuals: Show pressed state only if held AND finger is over the button
@@ -548,10 +553,15 @@ game_state = STATE_INIT
 exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
 trigger_timer = 0
+frame_count = 0
 grace_timer = 0 # Slow-fall timer for restarts
 flap_cooldown = 0 # To prevent double-flaps on mobile
 last_night_alpha = 0 # Optimization: track last alpha set (starts at 0/Day)
 next_action = None # To store what to do after trigger_timer
+
+# Constants for optimization
+SKY_CYCLE_SPEED = 0.03
+PI_HALF = math.pi / 2
 just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
@@ -572,10 +582,12 @@ if IS_ANDROID:
 
 # --- Main Game Loop ---
 run = True
+night_alpha = 0
 while run:
     dt = min(clock.tick(FPS) / 1000.0, 0.05)
     evs = pygame.event.get()
     v_pos = get_virtual_mouse_pos() # Optimization: Get once per frame
+    frame_count += 1
     
     jump_triggered = False
     for e in evs:
@@ -607,7 +619,7 @@ while run:
 
         # 2. UI Buttons & Touch Logic
         if game_state == STATE_PLAYING:
-            if pause_btn.handle_event(e):
+            if pause_btn.handle_event(e, v_pos):
                 game_state = STATE_PAUSED
                 music_channel.pause()
                 swoosh_fx.play()
@@ -623,7 +635,7 @@ while run:
                 swoosh_fx.play()
 
         elif game_state == STATE_INIT:
-            if quit_btn.handle_event(e):
+            if quit_btn.handle_event(e, v_pos):
                 trigger_timer = 0.2
                 swoosh_fx.play()
             
@@ -632,10 +644,10 @@ while run:
                     jump_triggered = True
 
         elif game_state == STATE_GAMEOVER:
-            if restart_btn.handle_event(e):
+            if restart_btn.handle_event(e, v_pos):
                 trigger_timer, next_action = 0.2, "RESTART"
                 swoosh_fx.play()
-            if menu_btn.handle_event(e):
+            if menu_btn.handle_event(e, v_pos):
                 trigger_timer, next_action = 0.2, "MENU"
                 swoosh_fx.play()
 
@@ -653,13 +665,15 @@ while run:
                                     intense), random.randint(-intense, intense)
 
     # --- Day/Night Cycle Logic ---
-    cycle_val = (math.sin(run_timer * 0.03 - math.pi/2) + 1) / 2
-    night_alpha = int(cycle_val * 255)
+    # Optimization: Calculate only every 5 frames
+    if frame_count % 5 == 0:
+        cycle_val = (math.sin(run_timer * SKY_CYCLE_SPEED - PI_HALF) + 1) / 2
+        night_alpha = int(cycle_val * 255)
 
-    if abs(night_alpha - last_night_alpha) > 1:
-        bg_long_night.set_alpha(night_alpha)
-        bg_night.set_alpha(night_alpha)
-        last_night_alpha = night_alpha
+        if abs(night_alpha - last_night_alpha) > 1:
+            bg_long_night.set_alpha(night_alpha)
+            bg_night.set_alpha(night_alpha)
+            last_night_alpha = night_alpha
 
     # Use actual widths to ensure correct scrolling
     bg_w = bg_day.get_width()
@@ -698,7 +712,7 @@ while run:
 
     if game_state == STATE_PLAYING:
         # Draw Pause Button
-        pause_btn.draw(render_surface)
+        pause_btn.draw(render_surface, v_pos)
 
         run_timer += dt
         if grace_timer > 0:
@@ -748,7 +762,7 @@ while run:
 
         if hit_ground or hit_top or hit_pipe:
             game_state = STATE_GAMEOVER
-            restart_delay = 10 # ~0.16 seconds at 60 FPS
+            restart_delay = 0.16 # ~160ms
             if not hit_played:
                 # Dynamic intensity based on speed
                 intensity = current_scroll_speed / SCROLL_SPEED
@@ -818,12 +832,12 @@ while run:
             center=(SCREEN_WIDTH//2, int(SCREEN_HEIGHT * 0.25) + float_offset)))
         
         if trigger_timer > 0:
-            quit_btn.draw(render_surface)
+            quit_btn.draw(render_surface, v_pos)
             trigger_timer -= dt
             if trigger_timer <= 0:
                 run = False # Only action is QUIT here
         else:
-            quit_btn.draw(render_surface)
+            quit_btn.draw(render_surface, v_pos)
 
     elif game_state == STATE_PAUSED:
         render_surface.blit(paused_text_surf, paused_text_surf.get_rect(
@@ -869,8 +883,8 @@ while run:
                 center=(SCREEN_WIDTH//2, int(SCREEN_HEIGHT * 0.1) + int(120 * SCALE))))
         
         if trigger_timer > 0:
-            restart_btn.draw(render_surface)
-            menu_btn.draw(render_surface)
+            restart_btn.draw(render_surface, v_pos)
+            menu_btn.draw(render_surface, v_pos)
             trigger_timer -= dt
             if trigger_timer <= 0:
                 if next_action == "RESTART":
@@ -878,12 +892,12 @@ while run:
                 elif next_action == "MENU":
                     reset_game(from_menu=True) # Go to TAP TO FLAP
         elif restart_delay > 0:
-            restart_btn.draw(render_surface)
-            menu_btn.draw(render_surface)
-            restart_delay -= 1
+            restart_btn.draw(render_surface, v_pos)
+            menu_btn.draw(render_surface, v_pos)
+            restart_delay -= dt
         else:
-            restart_btn.draw(render_surface)
-            menu_btn.draw(render_surface)
+            restart_btn.draw(render_surface, v_pos)
+            menu_btn.draw(render_surface, v_pos)
 
     if flash_alpha > 0:
         fs = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
