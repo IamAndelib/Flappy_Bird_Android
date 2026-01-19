@@ -239,7 +239,7 @@ def reset_game(from_menu=True):
     global score, score_surface, score_rect, game_state, hit_played, die_played, pipe_timer, new_record_set
     global shake_duration, flash_alpha, run_timer, current_scroll_speed, current_pipe_gap, current_pipe_freq
     global bg_long_scroll, game_over_surf, restart_delay, bg_scroll, ground_scroll, trigger_timer, grace_timer
-    global current_bg_speed, bg_long_speed, pipe_motion_phase, score_scale
+    global current_bg_speed, bg_long_speed, pipe_motion_phase, score_scale, current_shake_intensity
     gc.collect()
     pipe_group.empty()
     particle_group.empty()
@@ -250,7 +250,7 @@ def reset_game(from_menu=True):
     score = 0
     run_timer = bg_long_scroll = bg_scroll = ground_scroll = pipe_motion_phase = 0.0
     score_scale = 1.0
-    shake_duration = flash_alpha = restart_delay = 0.0
+    shake_duration = flash_alpha = restart_delay = current_shake_intensity = 0.0
     global flap_cooldown
     flap_cooldown = 0.0
     pipe_timer = PIPE_FREQ - 0.5
@@ -420,7 +420,7 @@ class Particle(pygame.sprite.Sprite):
         self.image = pygame.Surface((1, 1))
         self.rect = get_frect(self.image)
 
-    def reset(self, x, y, color):
+    def reset(self, x, y, color, speed_mult=1.0):
         size = random.randint(4, 8)
         key = (size, color)
         if key not in Particle.CACHE:
@@ -431,7 +431,8 @@ class Particle(pygame.sprite.Sprite):
         # Must copy to avoid shared alpha state between particles
         self.image = Particle.CACHE[key].copy()
         self.rect = get_frect(self.image, center=(x, y))
-        self.vx, self.vy = random.uniform(-200.0, 200.0), random.uniform(-200.0, 200.0)
+        base_speed = 200.0 * speed_mult
+        self.vx, self.vy = random.uniform(-base_speed, base_speed), random.uniform(-base_speed, base_speed)
         self.life = 1.0
         self.active = True
 
@@ -453,11 +454,11 @@ class Particle(pygame.sprite.Sprite):
 particle_pool = [Particle() for _ in range(100)]
 
 
-def spawn_particles(x, y, color, count):
+def spawn_particles(x, y, color, count, speed_mult=1.0):
     s = 0
     for p in particle_pool:
         if not p.active:
-            p.reset(x, y, color)
+            p.reset(x, y, color, speed_mult)
             particle_group.add(p)
             s += 1
         if s >= count:
@@ -528,7 +529,7 @@ while run:
     frame_count += 1
     ox = oy = 0
     if shake_duration > 0:
-        it = int(SHAKE_INTENSITY * (shake_duration / SHAKE_DURATION))
+        it = int(current_shake_intensity * (shake_duration / SHAKE_DURATION))
         shake_duration -= dt
         if it > 0:
             ox, oy = random.randint(-it, it), random.randint(-it, it)
@@ -672,9 +673,24 @@ while run:
                             break
                     if hit:
                         game_state = STATE_GAMEOVER
-                        # Backward projectile effect on pipe hit
-                        flappy.vel = -600.0
-                        flappy.vel_x = -400.0
+                        
+                        # Dynamic Collision Logic
+                        impact_v = math.hypot(current_scroll_speed, flappy.vel)
+                        i_factor = impact_v / SCROLL_SPEED
+                        
+                        # Projectile Physics (Bounce back)
+                        flappy.vel = - (abs(flappy.vel) * 0.4 + 300.0)
+                        flappy.vel_x = - (current_scroll_speed * 0.8 + 200.0) * (0.5 + i_factor * 0.5)
+                        
+                        # Effects
+                        current_shake_intensity = 20.0 * i_factor
+                        shake_duration = SHAKE_DURATION * (0.5 + i_factor * 0.5)
+                        flash_alpha = 255.0
+                        spawn_particles(flappy.rect.centerx, flappy.rect.centery, WHITE, int(25 * i_factor), speed_mult=i_factor)
+                        
+                        hit_fx.play()
+                        die_fx.play()
+                        hit_played = True
                         break
                 
                 # Check ground/ceiling collision with visual precision
@@ -684,40 +700,57 @@ while run:
                     flappy.vel = 0.0 # Stop upward momentum immediately
                     flappy.vel_x = 0.0
                     game_state = STATE_GAMEOVER
+                    
+                    # Ceiling Hit Effects
+                    current_shake_intensity = 10.0
+                    shake_duration = 0.2
+                    hit_fx.play(); die_fx.play(); hit_played = True
                     break
+                    
                 if flappy.rect.y + v_bottom_local >= GROUND_LEVEL:
+                    # Impact calc
+                    i_factor = max(1.0, abs(flappy.vel) / 500.0)
+                    
                     flappy.vel = 0.0
                     flappy.vel_x = 0.0
                     game_state = STATE_GAMEOVER
+                    
+                    # Ground Hit Effects
+                    current_shake_intensity = 20.0 * i_factor
+                    shake_duration = SHAKE_DURATION * i_factor
+                    flash_alpha = 255.0
+                    spawn_particles(flappy.rect.centerx, flappy.rect.bottom - 10, WHITE, int(20 * i_factor), speed_mult=i_factor)
+                    
+                    hit_fx.play()
+                    die_fx.play()
+                    hit_played = True
                     break
 
-    if game_state == STATE_GAMEOVER and not hit_played:
-        restart_delay = 0.16
-        intensity = current_scroll_speed / SCROLL_SPEED
-        spawn_particles(flappy.rect.centerx, flappy.rect.centery,
-                        WHITE, int(15 * intensity))
-        shake_duration, flash_alpha, hit_played = SHAKE_DURATION * intensity, 255.0, True
-        
-        # Determine if we should play hit sounds
-        m_rects = flappy.mask.get_bounding_rects()
-        v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
-        if flappy.rect.y + v_bottom_local < GROUND_LEVEL:
-            hit_fx.play()
-            swoosh_fx.play()
-        
-        die_fx.play()
-        music_channel.stop()
-        game_over_surf = render_score(
-            f'NEW RECORD: {score}!' if new_record_set else f'HIGH SCORE: {high_score}', GREEN if new_record_set else BLUE, small=True)
-        game_over_rect = game_over_surf.get_rect(
-            center=(SCREEN_WIDTH // 2, SCORE_Y + GAMEOVER_Y_OFFSET))
-        if score > high_score:
-            high_score = score
-            try:
-                with open(get_path('highscore.txt'), 'w') as f:
-                    f.write(str(high_score))
-            except:
-                pass
+    if game_state == STATE_GAMEOVER:
+        if not hit_played:
+            restart_delay = 0.16
+            intensity = current_scroll_speed / SCROLL_SPEED
+            spawn_particles(flappy.rect.centerx, flappy.rect.centery,
+                            WHITE, int(15 * intensity))
+            shake_duration, flash_alpha, hit_played = SHAKE_DURATION * intensity, 255.0, True
+            hit_fx.play(); die_fx.play()
+
+        if game_over_surf is None:
+            restart_delay = 0.16
+            music_channel.stop()
+            if score > high_score:
+                new_record_set = True
+                high_score = score
+                try:
+                    with open(get_path('highscore.txt'), 'w') as f:
+                        f.write(str(high_score))
+                except:
+                    pass
+            
+            game_over_surf = render_score(
+                f'NEW RECORD: {score}!' if new_record_set else f'HIGH SCORE: {high_score}', GREEN if new_record_set else BLUE, small=True)
+            game_over_rect = game_over_surf.get_rect(
+                center=(SCREEN_WIDTH // 2, SCORE_Y + GAMEOVER_Y_OFFSET))
 
     if game_state != STATE_PAUSED:
         particle_group.update(dt)
