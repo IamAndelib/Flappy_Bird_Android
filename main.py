@@ -1,3 +1,5 @@
+import sys
+import os
 import pygame
 import random
 import math
@@ -9,16 +11,15 @@ FPS = 60
 GROUND_LEVEL = 768
 PIPE_GAP, PIPE_FREQ = 150, 1.5
 SCROLL_SPEED, BG_SCROLL_SPEED = 240, 60
-GRAVITY, JUMP_STRENGTH = 30, -8
+GRAVITY, JUMP_STRENGTH = 1800, -480
 SHAKE_INTENSITY, SHAKE_DURATION = 15, 0.4
 FLAP_SPEED = 0.1
+MAX_FALL_SPEED = 900
 
 WHITE, BLACK, RED, BLUE, GREEN, ORANGE = (
     255,)*3, (0,)*3, (255, 0, 0), (30, 80, 250), (0, 150, 0), (255, 140, 0)
 
 # --- Initialization ---
-import os
-import sys
 
 # Detect Android using environment variables
 IS_ANDROID = 'ANDROID_ARGUMENT' in os.environ or 'ANDROID_PRIVATE' in os.environ
@@ -26,22 +27,27 @@ IS_ANDROID = 'ANDROID_ARGUMENT' in os.environ or 'ANDROID_PRIVATE' in os.environ
 # Base path for assets - required for absolute paths on Android
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
+
 def get_path(relative_path):
     return os.path.join(BASE_PATH, relative_path)
+
 
 pygame.mixer.pre_init(48000, -16, 2, 4096)
 pygame.init()
 clock = pygame.time.Clock()
 
 # Use standard fullscreen for Android for stability
+actual_w, actual_h = SCREEN_WIDTH, SCREEN_HEIGHT
 if IS_ANDROID:
     screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
     # Get actual dimensions after set_mode(0,0)
     actual_w, actual_h = screen.get_size()
     render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 else:
+    actual_w, actual_h = SCREEN_WIDTH, SCREEN_HEIGHT
     flags = pygame.SCALED
-    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1)
+    screen = pygame.display.set_mode(
+        (SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1)
     render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 
 pygame.display.set_caption("Flappy Bird")
@@ -57,6 +63,25 @@ STATE_MENU, STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED = 0, 1, 2, 3
 game_state = STATE_MENU
 
 # --- Utility Functions ---
+
+def get_virtual_mouse_pos():
+    """Converts real screen mouse/touch position to virtual game coordinates."""
+    pos = pygame.mouse.get_pos()
+    if not IS_ANDROID:
+        return pos
+    
+    # Calculate current scaling factors (matching the logic in the main loop)
+    actual_w, actual_h = screen.get_size()
+    ratio = min(actual_w / SCREEN_WIDTH, actual_h / SCREEN_HEIGHT)
+    
+    # Offset due to centering (pillarboxing/letterboxing)
+    offset_x = (actual_w - SCREEN_WIDTH * ratio) // 2
+    offset_y = (actual_h - SCREEN_HEIGHT * ratio) // 2
+    
+    # Translate and scale back to virtual coordinates
+    vx = (pos[0] - offset_x) / ratio
+    vy = (pos[1] - offset_y) / ratio
+    return (vx, vy)
 
 
 def render_score(score_val, color=WHITE):
@@ -95,6 +120,7 @@ def load_img(path, alpha=False):
     except Exception:
         return pygame.Surface((10, 10))
 
+
 bg_day = load_img('img/bg_day.png')
 bg_night = load_img('img/bg_night.png')
 bg_long_day = load_img('img/bglong_day.png')
@@ -109,12 +135,15 @@ pipe_mask = get_shrunk_mask(pipe_img, 0.98)
 pipe_mask_flipped = get_shrunk_mask(pipe_img_flipped, 0.98)
 
 # Audio
+
+
 def load_sound(path):
     abs_path = get_path(path)
     try:
         return pygame.mixer.Sound(abs_path)
     except Exception:
         return None
+
 
 flap_fx = load_sound('audio/sfx_wing.wav')
 hit_fx = load_sound('audio/sfx_hit.wav')
@@ -134,10 +163,11 @@ except:
 
 
 def reset_game():
-    """Resets all game variables for a new round."""
+    """Resets all game variables and starts a new round immediately."""
     global score, score_surface, score_rect, game_state, hit_played, die_played, pipe_timer, new_record_set
     global shake_duration, flash_alpha, run_timer, current_scroll_speed, current_pipe_gap, current_pipe_freq
     global bg_long_scroll, game_over_surf, pipe_move_speed, restart_delay, bg_scroll, ground_scroll
+    global just_restarted
 
     pipe_group.empty()
     particle_group.empty()
@@ -149,10 +179,18 @@ def reset_game():
     score_surface = render_score(score, WHITE)
     score_rect = score_surface.get_rect(center=(SCREEN_WIDTH // 2, 50))
     current_scroll_speed, current_pipe_gap, current_pipe_freq = SCROLL_SPEED, PIPE_GAP, PIPE_FREQ
+    
     music_channel.stop()
     if hasattr(music_channel, "speed"):
         music_channel.speed = 1.0
-    game_state, hit_played, die_played, new_record_set, game_over_surf = STATE_MENU, False, False, False, None
+    music_channel.play(music_fx, loops=-1)
+    
+    # Transition directly to PLAYING
+    game_state = STATE_PLAYING
+    hit_played = die_played = new_record_set = False
+    game_over_surf = None
+    just_restarted = True
+    swoosh_fx.play()
 
 # --- Game Classes ---
 
@@ -179,31 +217,35 @@ class Bird(pygame.sprite.Sprite):
                 math.sin(self.hover_timer * 8) * 15
             self.angle = 0
         else:
-            self.vel = min(self.vel + GRAVITY * dt, 15)
+            # Gravity and movement in pixels per second
+            self.vel = min(self.vel + GRAVITY * dt, MAX_FALL_SPEED)
             if self.rect.bottom < GROUND_LEVEL:
-                self.rect.y += self.vel
-                self.rect.x += self.vel_x
+                self.rect.y += self.vel * dt
+                self.rect.x += self.vel_x * dt
                 # Apply "air resistance" to horizontal movement
                 if game_state == STATE_GAMEOVER:
-                    self.vel_x *= (1.0 - 1.0 * dt)
+                    self.vel_x *= (1.0 - 5.0 * dt)
             else:
                 self.rect.bottom, self.vel, self.vel_x = GROUND_LEVEL, 0, 0
 
         if game_state == STATE_PLAYING:
             if self.vel < 0:
-                dynamic_flap_speed = max(0.04, 0.1 + (self.vel / 50.0))
+                dynamic_flap_speed = max(0.04, 0.1 + (self.vel / 3000.0))
             else:
-                dynamic_flap_speed = min(0.15, 0.1 + (self.vel / 100.0))
+                dynamic_flap_speed = min(0.15, 0.1 + (self.vel / 6000.0))
 
             self.animation_timer += dt
             if self.animation_timer > dynamic_flap_speed:
                 self.animation_timer, self.index = 0, (
                     self.index + 1) % len(self.images)
-            if self.vel > 7:
+            if self.vel > 420: # 7 * 60
                 self.index, self.animation_timer = 1, 0
 
-            target_angle = 20 if self.vel < 0 else 20 - (self.vel / 15) * 100
-            lerp_speed = 5.0 if target_angle > self.angle else 3.0
+            target_angle = 20 if self.vel < 0 else 20 - (self.vel / MAX_FALL_SPEED) * 100
+            if IS_ANDROID: # Smoother rotation for mobile
+                lerp_speed = 10.0 if target_angle > self.angle else 5.0
+            else:
+                lerp_speed = 5.0 if target_angle > self.angle else 3.0
             self.angle += (target_angle - self.angle) * lerp_speed * dt
             snapped_angle = max(-80, min(20, int(self.angle)))
         elif game_state == STATE_GAMEOVER:
@@ -257,20 +299,37 @@ class Pipe(pygame.sprite.Sprite):
 class Button:
     def __init__(self, x, y, image):
         self.img = image
-        self.hover_img = pygame.transform.scale(
-            image, (int(image.get_width()*1.1), int(image.get_height()*1.1)))
         self.rect = self.img.get_rect(topleft=(x, y))
-        self.hover_rect = self.hover_img.get_rect(center=self.rect.center)
+        # Pressed state: slightly smaller to give a "pushed" feel
+        self.pressed_img = pygame.transform.scale(
+            image, (int(image.get_width()*0.9), int(image.get_height()*0.9)))
+        self.pressed_rect = self.pressed_img.get_rect(center=self.rect.center)
+        self.is_pressed = False
 
-    def draw(self, surface, forced=False):
-        res = False
-        if self.rect.collidepoint(pygame.mouse.get_pos()) or forced:
-            surface.blit(self.hover_img, self.hover_rect)
-            if pygame.mouse.get_pressed()[0]:
-                res = True
+    def draw(self, surface, events=None):
+        triggered = False
+        v_pos = get_virtual_mouse_pos()
+        over_button = self.rect.collidepoint(v_pos)
+
+        if events:
+            for e in events:
+                if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
+                    if over_button:
+                        self.is_pressed = True
+                
+                if e.type == MOUSEBUTTONUP or e.type == pygame.FINGERUP:
+                    # Only trigger if we were pressing it AND we lifted over the button
+                    if self.is_pressed and over_button:
+                        triggered = True
+                    self.is_pressed = False
+
+        # Visuals: Show pressed state only if held AND finger is over the button
+        if self.is_pressed and over_button:
+            surface.blit(self.pressed_img, self.pressed_rect)
         else:
             surface.blit(self.img, self.rect)
-        return res
+            
+        return triggered
 
 
 class Particle(pygame.sprite.Sprite):
@@ -289,7 +348,7 @@ class Particle(pygame.sprite.Sprite):
             surf = pygame.Surface((size, size), pygame.SRCALPHA)
             pygame.draw.circle(surf, color, (size//2, size//2), size//2)
             Particle.CACHE[key] = surf
-        
+
         self.image = Particle.CACHE[key]
         self.rect = self.image.get_rect(center=(x, y))
         self.vx, self.vy = random.uniform(-150, 150), random.uniform(-150, 150)
@@ -335,6 +394,8 @@ button = Button(SCREEN_WIDTH//2 - 50, SCREEN_HEIGHT//2 - 100, button_img)
 # Global State
 exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
+trigger_timer = 0
+just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
 score_surface = render_score(score)
@@ -348,7 +409,7 @@ game_over_surf = None
 if IS_ANDROID:
     try:
         # Modern p4a often handles this via SDL or needs pyjnius for specific Android API calls
-        pass 
+        pass
     except Exception:
         pass
 
@@ -439,12 +500,14 @@ while run:
 
         if hit_ground or hit_top or hit_pipe:
             game_state = STATE_GAMEOVER
+            restart_delay = 10 # ~0.16 seconds at 60 FPS
             if not hit_played:
                 # Dynamic intensity based on speed
                 intensity = current_scroll_speed / SCROLL_SPEED
                 particle_count = int(15 * intensity)
 
-                spawn_particles(flappy.rect.centerx, flappy.rect.centery, WHITE, particle_count)
+                spawn_particles(flappy.rect.centerx,
+                                flappy.rect.centery, WHITE, particle_count)
 
                 shake_duration, flash_alpha, hit_played = SHAKE_DURATION * intensity, 255, True
 
@@ -453,8 +516,8 @@ while run:
                     swoosh_fx.play()
                     if hit_pipe:
                         # Only apply the dramatic "projectile" motion if hitting a pipe
-                        flappy.vel = -8 * intensity
-                        flappy.vel_x = -5 * intensity
+                        flappy.vel = -480 * intensity
+                        flappy.vel_x = -300 * intensity
                     else:
                         # If hitting the top, just ensure it stops moving up so it falls
                         flappy.vel = 0
@@ -510,15 +573,20 @@ while run:
         if game_over_surf:
             render_surface.blit(game_over_surf, game_over_surf.get_rect(
                 center=(SCREEN_WIDTH//2, 120)))
-        if restart_delay > 0:
-            button.draw(render_surface, True)
-            restart_delay -= 1
-            if restart_delay == 0:
+        
+        # If we are in the middle of a trigger delay, just wait
+        if trigger_timer > 0:
+            button.draw(render_surface) # Draw button in normal state
+            trigger_timer -= dt
+            if trigger_timer <= 0:
                 reset_game()
-                swoosh_fx.play()
-        elif button.draw(render_surface):
-            reset_game()
-            swoosh_fx.play()
+        elif restart_delay > 0:
+            button.draw(render_surface)
+            restart_delay -= 1
+        else:
+            if button.draw(render_surface, evs):
+                trigger_timer = 0.2 # 0.2 second delay to show the button lift
+                swoosh_fx.play() # Play swoosh immediately on lift
 
     if flash_alpha > 0:
         fs = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -534,7 +602,8 @@ while run:
         new_size = (int(SCREEN_WIDTH * ratio), int(SCREEN_HEIGHT * ratio))
         scaled_surf = pygame.transform.scale(render_surface, new_size)
         # Center the scaled surface
-        pos = (ox + (actual_w - new_size[0]) // 2, oy + (actual_h - new_size[1]) // 2)
+        pos = (ox + (actual_w - new_size[0]) //
+               2, oy + (actual_h - new_size[1]) // 2)
         screen.blit(scaled_surf, pos)
     else:
         screen.blit(render_surface, (ox, oy))
@@ -542,12 +611,18 @@ while run:
     for e in evs:
         if e.type == QUIT:
             run = False
+        
+        # ... (rest of event loop)
 
         # Input Handling (Keyboard + Touch)
         jump_triggered = False
         if e.type == KEYDOWN and e.key == K_SPACE:
             jump_triggered = True
         if e.type == MOUSEBUTTONDOWN:
+            # On Android, we prefer FINGERDOWN for jumping, but MOUSEBUTTONDOWN is still okay for desktop
+            if not IS_ANDROID:
+                jump_triggered = True
+        if e.type == pygame.FINGERDOWN:
             jump_triggered = True
 
         if jump_triggered:
@@ -558,8 +633,12 @@ while run:
                 flappy.vel = JUMP_STRENGTH
                 flap_fx.play()
             elif game_state == STATE_PLAYING:
+                # If we just restarted via the button, the bird is already set to jump
+                # but we can also just let it jump again or ignore. 
+                # To make it feel responsive, we'll apply the jump.
                 flappy.vel = JUMP_STRENGTH
                 flap_fx.play()
+                just_restarted = False
             elif game_state == STATE_PAUSED:
                 game_state = STATE_PLAYING
                 music_channel.unpause()
@@ -567,7 +646,7 @@ while run:
                 flap_fx.play()
 
         if e.type == KEYDOWN:
-            if e.key == K_ESCAPE:
+            if e.key == K_ESCAPE or e.key == K_AC_BACK:
                 if game_state == STATE_PLAYING:
                     game_state = STATE_PAUSED
                     music_channel.pause()
@@ -584,11 +663,11 @@ while run:
             if e.key in (K_RETURN, K_KP_ENTER):
                 if game_state == STATE_GAMEOVER:
                     reset_game()
-                    swoosh_fx.play()
-    
+
     if exit_timer > 0 and game_state == STATE_MENU:
         exit_msg = font.render("TAP BACK AGAIN TO EXIT", True, WHITE)
-        render_surface.blit(exit_msg, exit_msg.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 100)))
+        render_surface.blit(exit_msg, exit_msg.get_rect(
+            center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 100)))
 
     pygame.display.flip()
 pygame.quit()
