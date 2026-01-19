@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Flappy Bird</string>
-    <string name="private_version">b110b46ddf458e469e4b9c46d975f45ff3b787a6</string>
+    <string name="private_version">e5637ba22216412f9a1d2cfbfb8deb3c74936c05</string>
     <string name="presplash_color">#000000</string>
     <string name="urlScheme">kivy</string>
 </resources>

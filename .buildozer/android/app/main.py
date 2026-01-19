@@ -19,6 +19,9 @@ WHITE, BLACK, RED, BLUE, GREEN, ORANGE = (
 
 # --- Initialization ---
 
+# Enable SDL2 hardware acceleration for blending (pygame-ce specific)
+os.environ['PYGAME_BLEND_ALPHA_SDL2'] = '1'
+
 # Detect Android using environment variables
 IS_ANDROID = 'ANDROID_ARGUMENT' in os.environ or 'ANDROID_PRIVATE' in os.environ
 
@@ -169,6 +172,10 @@ bg_day = load_img('img/bg_day.png', scale_to_h=GROUND_LEVEL)
 bg_night = load_img('img/bg_night.png', scale_to_h=GROUND_LEVEL)
 bg_long_day = load_img('img/bglong_day.png', scale_to_h=SCREEN_HEIGHT)
 bg_long_night = load_img('img/bglong_night.png', scale_to_h=SCREEN_HEIGHT)
+
+# Optimization: Ensure night backgrounds start transparent (Daytime)
+bg_night.set_alpha(0)
+bg_long_night.set_alpha(0)
 
 # Ground: ensure it's tall enough to hide pipe caps
 ground_h = SCREEN_HEIGHT - GROUND_LEVEL + 100
@@ -413,13 +420,15 @@ class Pipe(pygame.sprite.Sprite):
 
     def update(self, dt, scroll_speed):
         self.rect.x -= scroll_speed * dt
-        if score >= 20:
+        # Optimization: only calculate oscillation if visible on screen
+        if score >= 20 and self.rect.left < SCREEN_WIDTH:
             target_amplitude = min((score - 20) * 5 + 10, 50)
             if self.current_amplitude < target_amplitude:
                 self.current_amplitude += 20 * dt
             self.phase += dt * self.freq * 1.5
             self.rect.y = self.base_y + \
                 math.sin(self.phase) * self.current_amplitude
+        
         if self.rect.right < 0:
             self.kill()
 
@@ -541,6 +550,7 @@ ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration 
 trigger_timer = 0
 grace_timer = 0 # Slow-fall timer for restarts
 flap_cooldown = 0 # To prevent double-flaps on mobile
+last_night_alpha = 0 # Optimization: track last alpha set (starts at 0/Day)
 next_action = None # To store what to do after trigger_timer
 just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
@@ -565,6 +575,7 @@ run = True
 while run:
     dt = min(clock.tick(FPS) / 1000.0, 0.05)
     evs = pygame.event.get()
+    v_pos = get_virtual_mouse_pos() # Optimization: Get once per frame
     
     jump_triggered = False
     for e in evs:
@@ -602,7 +613,7 @@ while run:
                 swoosh_fx.play()
             
             if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
-                if not pause_btn.rect.collidepoint(get_virtual_mouse_pos()):
+                if not pause_btn.rect.collidepoint(v_pos):
                     jump_triggered = True
 
         elif game_state == STATE_PAUSED:
@@ -617,7 +628,7 @@ while run:
                 swoosh_fx.play()
             
             if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
-                if not quit_btn.rect.collidepoint(get_virtual_mouse_pos()):
+                if not quit_btn.rect.collidepoint(v_pos):
                     jump_triggered = True
 
         elif game_state == STATE_GAMEOVER:
@@ -645,24 +656,31 @@ while run:
     cycle_val = (math.sin(run_timer * 0.03 - math.pi/2) + 1) / 2
     night_alpha = int(cycle_val * 255)
 
-    bg_long_night.set_alpha(night_alpha)
-    bg_night.set_alpha(night_alpha)
+    if abs(night_alpha - last_night_alpha) > 1:
+        bg_long_night.set_alpha(night_alpha)
+        bg_night.set_alpha(night_alpha)
+        last_night_alpha = night_alpha
 
     # Use actual widths to ensure correct scrolling
     bg_w = bg_day.get_width()
     bg_long_w = bg_long_day.get_width()
 
     # Draw Parallax Background (Long)
-    render_surface.blit(bg_long_day, (bg_long_scroll, 0))
-    render_surface.blit(bg_long_night, (bg_long_scroll, 0))
-    render_surface.blit(bg_long_day, (bg_long_scroll + bg_long_w, 0))
-    render_surface.blit(bg_long_night, (bg_long_scroll + bg_long_w, 0))
+    # Optimization: Skip blitting layers that are completely hidden or transparent
+    if night_alpha < 255:
+        render_surface.blit(bg_long_day, (bg_long_scroll, 0))
+        render_surface.blit(bg_long_day, (bg_long_scroll + bg_long_w, 0))
+    if night_alpha > 0:
+        render_surface.blit(bg_long_night, (bg_long_scroll, 0))
+        render_surface.blit(bg_long_night, (bg_long_scroll + bg_long_w, 0))
 
     # Draw Main Background
-    render_surface.blit(bg_day, (bg_scroll, 0))
-    render_surface.blit(bg_night, (bg_scroll, 0))
-    render_surface.blit(bg_day, (bg_scroll + bg_w, 0))
-    render_surface.blit(bg_night, (bg_scroll + bg_w, 0))
+    if night_alpha < 255:
+        render_surface.blit(bg_day, (bg_scroll, 0))
+        render_surface.blit(bg_day, (bg_scroll + bg_w, 0))
+    if night_alpha > 0:
+        render_surface.blit(bg_night, (bg_scroll, 0))
+        render_surface.blit(bg_night, (bg_scroll + bg_w, 0))
 
     pipe_group.draw(render_surface)
     particle_group.draw(render_surface)
