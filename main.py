@@ -6,15 +6,13 @@ import math
 from pygame.locals import *
 
 # --- Configuration Constants ---
-SCREEN_WIDTH, SCREEN_HEIGHT = 864, 936
+# Use a high-quality 720p logical resolution
+SCREEN_WIDTH, SCREEN_HEIGHT = 720, 1280
 FPS = 60
-GROUND_LEVEL = 768
-PIPE_GAP, PIPE_FREQ = 150, 1.5
-SCROLL_SPEED, BG_SCROLL_SPEED = 240, 60
-GRAVITY, JUMP_STRENGTH = 1800, -480
-SHAKE_INTENSITY, SHAKE_DURATION = 15, 0.4
-FLAP_SPEED = 0.1
-MAX_FALL_SPEED = 900
+
+# Scaling factor for UI and physics (normalized to a baseline)
+# We'll use this primarily for fonts and small offsets
+SCALE = SCREEN_WIDTH / 720.0 
 
 WHITE, BLACK, RED, BLUE, GREEN, ORANGE = (
     255,)*3, (0,)*3, (255, 0, 0), (30, 80, 250), (0, 150, 0), (255, 140, 0)
@@ -32,31 +30,41 @@ def get_path(relative_path):
     return os.path.join(BASE_PATH, relative_path)
 
 
-pygame.mixer.pre_init(48000, -16, 2, 4096)
+pygame.mixer.pre_init(44100, -16, 2, 1024)
 pygame.init()
 clock = pygame.time.Clock()
 
-# Use standard fullscreen for Android for stability
-actual_w, actual_h = SCREEN_WIDTH, SCREEN_HEIGHT
+# Use SCALED for hardware-accelerated scaling to native resolution
 if IS_ANDROID:
-    screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-    # Get actual dimensions after set_mode(0,0)
-    actual_w, actual_h = screen.get_size()
-    render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED | pygame.FULLSCREEN)
 else:
-    actual_w, actual_h = SCREEN_WIDTH, SCREEN_HEIGHT
-    flags = pygame.SCALED
-    screen = pygame.display.set_mode(
-        (SCREEN_WIDTH, SCREEN_HEIGHT), flags, vsync=1)
-    render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+    screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SCALED | pygame.RESIZABLE)
 
+render_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Flappy Bird")
+
+# --- Game Constants (Scaled to 720p) ---
+GROUND_LEVEL = int(SCREEN_HEIGHT * 0.85)
+PIPE_GAP = int(SCREEN_HEIGHT * 0.18) # ~230px
+PIPE_FREQ = 1.5
+SCROLL_SPEED = 300 # Faster for 720p width
+BG_SCROLL_SPEED = 80
+GRAVITY = 2500
+JUMP_STRENGTH = -750
+SHAKE_INTENSITY = 15
+SHAKE_DURATION = 0.4
+FLAP_SPEED = 0.1
+MAX_FALL_SPEED = 1500
 
 try:
     font_path = get_path('04B_19.ttf')
-    font = pygame.font.Font(font_path, 60)
+    # Large score font
+    font = pygame.font.Font(font_path, 80)
+    # Smaller UI font
+    ui_font = pygame.font.Font(font_path, 45)
 except Exception:
-    font = pygame.font.SysFont('Arial', 60)
+    font = pygame.font.SysFont('Arial', 80)
+    ui_font = pygame.font.SysFont('Arial', 45)
 
 # Game States
 STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3
@@ -65,33 +73,19 @@ game_state = STATE_INIT
 # --- Utility Functions ---
 
 def get_virtual_mouse_pos():
-    """Converts real screen mouse/touch position to virtual game coordinates."""
-    pos = pygame.mouse.get_pos()
-    if not IS_ANDROID:
-        return pos
-    
-    # Calculate current scaling factors (matching the logic in the main loop)
-    actual_w, actual_h = screen.get_size()
-    ratio = min(actual_w / SCREEN_WIDTH, actual_h / SCREEN_HEIGHT)
-    
-    # Offset due to centering (pillarboxing/letterboxing)
-    offset_x = (actual_w - SCREEN_WIDTH * ratio) // 2
-    offset_y = (actual_h - SCREEN_HEIGHT * ratio) // 2
-    
-    # Translate and scale back to virtual coordinates
-    vx = (pos[0] - offset_x) / ratio
-    vy = (pos[1] - offset_y) / ratio
-    return (vx, vy)
+    return pygame.mouse.get_pos()
 
 
-def render_score(score_val, color=WHITE):
+def render_score(score_val, color=WHITE, small=False):
     """Renders text with a simple drop shadow."""
     text = str(score_val)
-    main_surf = font.render(text, True, color)
-    shadow_surf = font.render(text, True, BLACK)
+    f = ui_font if small else font
+    main_surf = f.render(text, True, color)
+    shadow_surf = f.render(text, True, BLACK)
     w, h = main_surf.get_size()
-    surf = pygame.Surface((w + 4, h + 4), pygame.SRCALPHA)
-    surf.blit(shadow_surf, (2, 2))
+    off = 4
+    surf = pygame.Surface((w + off, h + off), pygame.SRCALPHA)
+    surf.blit(shadow_surf, (off, off))
     surf.blit(main_surf, (0, 0))
     return surf.convert_alpha()
 
@@ -112,30 +106,78 @@ def get_shrunk_mask(image, factor=0.92):
 
 
 # --- Asset Loading ---
-def load_img(path, alpha=False):
+def load_img(path, alpha=False, scale_to_h=None, scale_to_w=None, smooth=True):
     abs_path = get_path(path)
     try:
         img = pygame.image.load(abs_path)
-        return img.convert_alpha() if alpha else img.convert()
+        img = img.convert_alpha() if alpha else img.convert()
+        
+        # Specific scaling
+        if scale_to_h:
+            ratio = scale_to_h / img.get_height()
+            w = int(img.get_width() * ratio)
+            img = pygame.transform.smoothscale(img, (w, int(scale_to_h)))
+        elif scale_to_w:
+            ratio = scale_to_w / img.get_width()
+            h = int(img.get_height() * ratio)
+            img = pygame.transform.smoothscale(img, (int(scale_to_w), h))
+            
+        return img
     except Exception:
         return pygame.Surface((10, 10))
 
 
-bg_day = load_img('img/bg_day.png')
-bg_night = load_img('img/bg_night.png')
-bg_long_day = load_img('img/bglong_day.png')
-bg_long_night = load_img('img/bglong_night.png')
-ground = load_img('img/ground.png')
-restart_img = load_img('img/restart.png')
-main_menu_img = load_img('img/main_menu.png')
-new_game_img = load_img('img/new_game.png')
-quit_img = load_img('img/quit.png')
-pipe_img = load_img('img/pipe.png', True)
+# Backgrounds
+bg_day = load_img('img/bg_day.png', scale_to_h=GROUND_LEVEL)
+bg_night = load_img('img/bg_night.png', scale_to_h=GROUND_LEVEL)
+bg_long_day = load_img('img/bglong_day.png', scale_to_h=SCREEN_HEIGHT)
+bg_long_night = load_img('img/bglong_night.png', scale_to_h=SCREEN_HEIGHT)
+
+# Ground: ensure it's tall enough to hide pipe caps
+ground_h = SCREEN_HEIGHT - GROUND_LEVEL + 100
+ground = load_img('img/ground.png', scale_to_h=ground_h)
+
+# Game Objects
+pipe_img = load_img('img/pipe.png', True, scale_to_w=int(SCREEN_WIDTH * 0.16)) # ~115px
 pipe_img_flipped = pygame.transform.flip(pipe_img, False, True)
-BIRD_IMAGES = [load_img(f'img/bird{i}.png', True) for i in range(1, 4)]
-BIRD_MASKS = [get_shrunk_mask(img, 0.98) for img in BIRD_IMAGES]
+
+# Bird: 90% of previous size (0.12 * 0.9 = 0.108)
+BIRD_IMAGES = [load_img(f'img/bird{i}.png', True, scale_to_w=int(SCREEN_WIDTH * 0.108)) for i in range(1, 4)]
+BIRD_MASKS = [get_shrunk_mask(img, 0.95) for img in BIRD_IMAGES]
 pipe_mask = get_shrunk_mask(pipe_img, 0.98)
 pipe_mask_flipped = get_shrunk_mask(pipe_img_flipped, 0.98)
+
+# --- Button UI Generation ---
+def create_text_button(text, width, color=ORANGE):
+    """Creates a sharp, high-res button using the game font instead of low-res PNGs."""
+    padding = 20
+    # Render text with shadow
+    text_surf = ui_font.render(text, True, WHITE)
+    shadow_surf = ui_font.render(text, True, BLACK)
+    tw, th = text_surf.get_size()
+    
+    # Create background box
+    bw, bh = width, th + padding * 2
+    surf = pygame.Surface((bw, bh), pygame.SRCALPHA)
+    
+    # Draw rounded-ish rectangle / border
+    pygame.draw.rect(surf, BLACK, (0, 0, bw, bh), border_radius=10)
+    pygame.draw.rect(surf, color, (4, 4, bw-8, bh-8), border_radius=8)
+    
+    # Blit text centered
+    surf.blit(shadow_surf, (bw//2 - tw//2 + 2, bh//2 - th//2 + 2))
+    surf.blit(text_surf, (bw//2 - tw//2, bh//2 - th//2))
+    
+    return surf.convert_alpha()
+
+# Dynamically generate sharp buttons
+restart_img = create_text_button("RESTART", int(SCREEN_WIDTH * 0.5))
+main_menu_img = create_text_button("MENU", int(SCREEN_WIDTH * 0.5), color=BLUE)
+quit_img = create_text_button("QUIT", int(SCREEN_WIDTH * 0.3), color=RED)
+# For the main menu, we can use the original new_game_img if it looks okay, 
+# but let's make it sharp too
+new_game_img = create_text_button("START", int(SCREEN_WIDTH * 0.5), color=GREEN)
+
 
 # Audio
 
@@ -191,7 +233,7 @@ def reset_game(from_menu=True):
     pipe_timer = PIPE_FREQ - 0.5
 
     score_surface = render_score(score, WHITE)
-    score_rect = score_surface.get_rect(center=(SCREEN_WIDTH // 2, 50))
+    score_rect = score_surface.get_rect(center=(SCREEN_WIDTH // 2, int(SCREEN_HEIGHT * 0.1)))
     current_scroll_speed, current_pipe_gap, current_pipe_freq = SCROLL_SPEED, PIPE_GAP, PIPE_FREQ
     
     music_channel.stop()
@@ -419,12 +461,12 @@ particle_group = pygame.sprite.Group()
 flappy = bird_group.sprite
 
 # Buttons
-# Game Over Buttons (Reduced gap to 20 pixels)
-restart_btn = Button(SCREEN_WIDTH//2 - restart_img.get_width()//2, SCREEN_HEIGHT//2 - 80, restart_img)
-menu_btn = Button(SCREEN_WIDTH//2 - main_menu_img.get_width()//2, SCREEN_HEIGHT//2 + 20, main_menu_img)
+# Game Over Buttons
+restart_btn = Button(SCREEN_WIDTH//2 - restart_img.get_width()//2, SCREEN_HEIGHT//2 - int(100 * SCALE), restart_img)
+menu_btn = Button(SCREEN_WIDTH//2 - main_menu_img.get_width()//2, SCREEN_HEIGHT//2 + int(20 * SCALE), main_menu_img)
 
 # Initial Screen Button (Quit only, at the bottom)
-quit_btn = Button(SCREEN_WIDTH//2 - quit_img.get_width()//2, SCREEN_HEIGHT - 150, quit_img)
+quit_btn = Button(SCREEN_WIDTH//2 - quit_img.get_width()//2, SCREEN_HEIGHT - int(150 * SCALE), quit_img)
 
 # Game States
 STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3
@@ -440,7 +482,7 @@ just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
 score_surface = render_score(score)
-score_rect = score_surface.get_rect(center=(SCREEN_WIDTH//2, 50))
+score_rect = score_surface.get_rect(center=(SCREEN_WIDTH//2, int(60 * SCALE)))
 menu_text_surf = render_score("TAP TO FLAP", ORANGE)
 paused_text_surf = render_score("PAUSED", ORANGE)
 hit_played = die_played = new_record_set = False
@@ -499,7 +541,11 @@ while run:
     if game_state != STATE_PAUSED:
         bird_group.update(dt)
         particle_group.update(dt)
+    
+    # Draw Ground (Repeating)
     render_surface.blit(ground, (ground_scroll, GROUND_LEVEL))
+    if ground_scroll + ground.get_width() < SCREEN_WIDTH:
+        render_surface.blit(ground, (ground_scroll + ground.get_width(), GROUND_LEVEL))
 
     if game_state == STATE_PLAYING:
         run_timer += dt
@@ -508,12 +554,12 @@ while run:
         
         # Faster ramp-up: Time constant reduced to 180s (3 mins).
         # Reaches ~63% difficulty at 3 mins, ~86% at 6 mins.
-        scale = 1.0 - math.exp(-run_timer / 180.0)
+        difficulty_scale = 1.0 - math.exp(-run_timer / 180.0)
 
         # Increased maximum caps for higher difficulty
-        current_scroll_speed = SCROLL_SPEED + scale * 160
-        current_pipe_gap = PIPE_GAP - scale * 55
-        current_pipe_freq = PIPE_FREQ - scale * 0.75
+        current_scroll_speed = SCROLL_SPEED + difficulty_scale * (160 * SCALE)
+        current_pipe_gap = PIPE_GAP - difficulty_scale * (55 * SCALE)
+        current_pipe_freq = PIPE_FREQ - difficulty_scale * 0.75
 
         # Perfect synchronization: BG speeds are now proportional to the main scroll speed
         current_bg_speed = current_scroll_speed * \
@@ -530,10 +576,9 @@ while run:
                 score += 1
                 if score > high_score:
                     new_record_set = True
-                score_surface = render_score(
-                    score, RED if new_record_set else WHITE)
+                score_surface = render_score(score)
                 score_rect, score_scale = score_surface.get_rect(
-                    center=(SCREEN_WIDTH // 2, 50)), 1.4
+                    center=(SCREEN_WIDTH // 2, int(SCREEN_HEIGHT * 0.1))), 1.4
                 point_fx.play()
                 p.scored = True
 
@@ -560,16 +605,18 @@ while run:
                     swoosh_fx.play()
                     if hit_pipe:
                         # Only apply the dramatic "projectile" motion if hitting a pipe
-                        flappy.vel = -480 * intensity
-                        flappy.vel_x = -300 * intensity
+                        flappy.vel = -1200 * intensity
+                        flappy.vel_x = -600 * intensity
                     else:
-                        # If hitting the top, just ensure it stops moving up so it falls
                         flappy.vel = 0
 
                 die_fx.play()
                 music_channel.stop()
+                # Render Game Over sub-text (High Score) smaller and lower
                 game_over_surf = render_score(
-                    f'NEW RECORD: {score}!' if new_record_set else f'HIGH SCORE: {high_score}', GREEN if new_record_set else BLUE)
+                    f'NEW RECORD: {score}!' if new_record_set else f'HIGH SCORE: {high_score}', 
+                    GREEN if new_record_set else BLUE, small=True)
+                
                 if score > high_score:
                     high_score = score
                     try:
@@ -581,35 +628,35 @@ while run:
         pipe_group.update(dt, current_scroll_speed)
         pipe_timer += dt
         if pipe_timer > current_pipe_freq:
-            h, off, f = random.randint(-100, 100), random.uniform(0,
-                                                                  math.pi*2), random.uniform(0.8, 1.2)
+            h = random.randint(int(-150 * SCALE), int(150 * SCALE))
             # Increased randomness and allows for significantly tighter gaps
-            random_gap = max(80, current_pipe_gap + random.randint(-40, 20))
+            random_gap = max(int(200 * SCALE), current_pipe_gap + random.randint(int(-50 * SCALE), int(50 * SCALE)))
             pipe_group.add(Pipe(SCREEN_WIDTH, SCREEN_HEIGHT//2 +
-                           h, -1, pipe_img, pipe_mask, random_gap, off, f))
+                           h, -1, pipe_img, pipe_mask, random_gap, 0, 1.0))
             pipe_group.add(Pipe(SCREEN_WIDTH, SCREEN_HEIGHT//2+h, 1,
-                           pipe_img_flipped, pipe_mask_flipped, random_gap, off, f))
+                           pipe_img_flipped, pipe_mask_flipped, random_gap, 0, 1.0))
             pipe_timer = 0
 
     if game_state in (STATE_INIT, STATE_PLAYING, STATE_GAMEOVER):
-        ground_scroll = (ground_scroll - current_scroll_speed*dt) % -35
-        bg_scroll = (bg_scroll - current_bg_speed*dt) % -SCREEN_WIDTH
-        bg_long_scroll = (bg_long_scroll - bg_long_speed*dt) % -1280
+        # Ground scroll interval should match the ground image size or repeat pattern
+        ground_scroll = (ground_scroll - current_scroll_speed*dt) % -ground.get_width()
+        bg_scroll = (bg_scroll - current_bg_speed*dt) % -bg_day.get_width()
+        bg_long_scroll = (bg_long_scroll - bg_long_speed*dt) % -bg_long_day.get_width()
 
     if game_state != STATE_PAUSED:
         if score_scale > 1.0:
             score_scale = max(1.0, score_scale - 2.0*dt)
             s = pygame.transform.scale(score_surface, (int(score_surface.get_width(
             )*score_scale), int(score_surface.get_height()*score_scale)))
-            render_surface.blit(s, s.get_rect(center=(SCREEN_WIDTH//2, 50)))
+            render_surface.blit(s, s.get_rect(center=(SCREEN_WIDTH//2, int(SCREEN_HEIGHT * 0.1))))
         else:
             render_surface.blit(score_surface, score_rect)
 
     if game_state == STATE_INIT:
         # Floating effect for "TAP TO FLAP"
-        float_offset = math.sin(pygame.time.get_ticks() * 0.005) * 10
+        float_offset = math.sin(pygame.time.get_ticks() * 0.005) * (20 * SCALE)
         render_surface.blit(menu_text_surf, menu_text_surf.get_rect(
-            center=(SCREEN_WIDTH//2, 150 + float_offset)))
+            center=(SCREEN_WIDTH//2, int(SCREEN_HEIGHT * 0.25) + float_offset)))
         
         if trigger_timer > 0:
             quit_btn.draw(render_surface)
@@ -623,11 +670,12 @@ while run:
 
     elif game_state == STATE_PAUSED:
         render_surface.blit(paused_text_surf, paused_text_surf.get_rect(
-            center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 50)))
+            center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - int(100 * SCALE))))
     elif game_state == STATE_GAMEOVER:
         if game_over_surf:
+            # Draw the record/high score text below the main score counter
             render_surface.blit(game_over_surf, game_over_surf.get_rect(
-                center=(SCREEN_WIDTH//2, 120)))
+                center=(SCREEN_WIDTH//2, int(SCREEN_HEIGHT * 0.1) + int(120 * SCALE))))
         
         if trigger_timer > 0:
             restart_btn.draw(render_surface)
@@ -657,18 +705,10 @@ while run:
         render_surface.blit(fs, (0, 0))
         flash_alpha = max(0, flash_alpha - 1500*dt)
 
+    # Direct rendering to screen at native resolution
     screen.fill(BLACK)
-    if IS_ANDROID:
-        # Calculate scaling to fit screen while maintaining aspect ratio
-        ratio = min(actual_w / SCREEN_WIDTH, actual_h / SCREEN_HEIGHT)
-        new_size = (int(SCREEN_WIDTH * ratio), int(SCREEN_HEIGHT * ratio))
-        scaled_surf = pygame.transform.scale(render_surface, new_size)
-        # Center the scaled surface
-        pos = (ox + (actual_w - new_size[0]) //
-               2, oy + (actual_h - new_size[1]) // 2)
-        screen.blit(scaled_surf, pos)
-    else:
-        screen.blit(render_surface, (ox, oy))
+    screen.blit(render_surface, (ox, oy))
+    pygame.display.flip()
 
     for e in evs:
         if e.type == QUIT:
@@ -730,5 +770,4 @@ while run:
         render_surface.blit(exit_msg, exit_msg.get_rect(
             center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 100)))
 
-    pygame.display.flip()
 pygame.quit()
