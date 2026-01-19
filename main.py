@@ -312,8 +312,11 @@ class Bird(pygame.sprite.Sprite):
                 self.vel_x = 0.0
 
         if game_state == STATE_PLAYING:
-            fs = max(0.04, 0.1 + (self.vel / 3000.0)
-                     ) if self.vel < 0 else min(0.15, 0.1 + (self.vel / 6000.0))
+            # Sync flap animation with game scroll speed (faster game = faster flap)
+            speed_mult = current_scroll_speed / SCROLL_SPEED
+            base_fs = max(0.04, 0.1 + (self.vel / 3000.0)) if self.vel < 0 else min(0.15, 0.1 + (self.vel / 6000.0))
+            fs = base_fs / speed_mult
+
             self.animation_timer += dt
             if self.animation_timer > fs:
                 self.animation_timer, self.index = 0, (self.index + 1) % 3
@@ -740,13 +743,11 @@ while run:
 
         if grace_timer > 0:
             grace_timer -= dt
-        diff = 1.0 - math.exp(-run_timer / 60.0)
-        current_scroll_speed = SCROLL_SPEED + diff * (200.0 * SCALE)
-        current_pipe_gap = PIPE_GAP - diff * (60.0 * SCALE)
-        current_pipe_freq = PIPE_FREQ - diff * 0.8
+        diff = 1.0 - math.exp(-run_timer / 70.0)
+        current_scroll_speed = SCROLL_SPEED + diff * (170.0 * SCALE)
+        current_pipe_gap = PIPE_GAP - diff * (50.0 * SCALE)
+        current_pipe_freq = PIPE_FREQ - diff * 0.7
         current_bg_speed, bg_long_speed = current_scroll_speed * 0.25, current_scroll_speed * 0.125
-        if hasattr(music_channel, "speed"):
-            music_channel.speed = current_scroll_speed / SCROLL_SPEED
         for p in pipe_group:
             if not p.scored and flappy.rect.left > p.rect.right and p.pos == -1:
                 score += 1
