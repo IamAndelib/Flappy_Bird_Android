@@ -18,6 +18,11 @@ os.environ['PYGAME_BLEND_ALPHA_SDL2'] = '1'
 IS_ANDROID = 'ANDROID_ARGUMENT' in os.environ or 'ANDROID_PRIVATE' in os.environ
 BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 
+def get_frect(surf, **kwargs):
+    if hasattr(surf, 'get_frect'):
+        return surf.get_frect(**kwargs)
+    return surf.get_rect(**kwargs)
+
 
 def get_path(relative_path):
     return os.path.join(BASE_PATH, relative_path)
@@ -166,15 +171,33 @@ for i in range(len(BIRD_SOURCES)):
 
 
 def create_pause_button(size):
-    surf = pygame.Surface((size, size), pygame.SRCALPHA)
-    pygame.draw.circle(surf, (144, 238, 144), (size//2, size//2), size//2)
-    pygame.draw.circle(surf, (100, 200, 100),
-                       (size//2, size//2), size//2, int(4 * SCALE))
-    pw, ph = size // 6, size // 2
-    pygame.draw.rect(surf, WHITE, (size//2 - pw - int(5*SCALE),
-                     size//2 - ph//2, pw, ph), border_radius=2)
-    pygame.draw.rect(surf, WHITE, (size//2 + int(5*SCALE),
-                     size//2 - ph//2, pw, ph), border_radius=2)
+    off = int(3 * SCALE)
+    surf = pygame.Surface((size + off, size + off), pygame.SRCALPHA)
+    pw = int(size * 0.35)
+    ph = size
+    
+    # 1. Shadow (Black)
+    pygame.draw.rect(surf, BLACK, (off, off, pw, ph), border_radius=int(3*SCALE))
+    pygame.draw.rect(surf, BLACK, (size - pw + off, off, pw, ph), border_radius=int(3*SCALE))
+    
+    # 2. Icon (White)
+    pygame.draw.rect(surf, WHITE, (0, 0, pw, ph), border_radius=int(3*SCALE))
+    pygame.draw.rect(surf, WHITE, (size - pw, 0, pw, ph), border_radius=int(3*SCALE))
+    
+    return surf.convert_alpha()
+
+
+def create_play_button(size):
+    off = int(3 * SCALE)
+    surf = pygame.Surface((size + off, size + off), pygame.SRCALPHA)
+    pts = [(0, 0), (size, size / 2.0), (0, size)]
+    s_pts = [(p[0] + off, p[1] + off) for p in pts]
+    
+    # 1. Shadow
+    pygame.draw.polygon(surf, BLACK, s_pts)
+    # 2. Icon
+    pygame.draw.polygon(surf, WHITE, pts)
+    
     return surf.convert_alpha()
 
 
@@ -189,7 +212,8 @@ def create_text_button(text, width, color=ORANGE):
     return surf.convert_alpha()
 
 
-pause_img = create_pause_button(int(SCREEN_WIDTH * 0.12))
+pause_img = create_pause_button(int(SCREEN_WIDTH * 0.09))
+play_img = create_play_button(int(SCREEN_WIDTH * 0.09))
 restart_img = create_text_button("RESTART", int(SCREEN_WIDTH * 0.5))
 menu_img = create_text_button("MENU", int(SCREEN_WIDTH * 0.5), color=BLUE)
 quit_img = create_text_button("QUIT", int(SCREEN_WIDTH * 0.3), color=RED)
@@ -215,17 +239,17 @@ def reset_game(from_menu=True):
     global score, score_surface, score_rect, game_state, hit_played, die_played, pipe_timer, new_record_set
     global shake_duration, flash_alpha, run_timer, current_scroll_speed, current_pipe_gap, current_pipe_freq
     global bg_long_scroll, game_over_surf, restart_delay, bg_scroll, ground_scroll, trigger_timer, grace_timer
-    global current_bg_speed, bg_long_speed
+    global current_bg_speed, bg_long_speed, pipe_motion_phase, score_scale
     gc.collect()
     pipe_group.empty()
     particle_group.empty()
     # Correctly reset bird position using its class attributes
-    flappy.px = 100.0
-    flappy.py = (SCREEN_HEIGHT / 2.0) - (BIRD_PAD_SIZE / 2.0)
-    flappy.rect.topleft = (int(flappy.px), int(flappy.py))
+    flappy.rect.centerx = 100.0
+    flappy.rect.centery = SCREEN_HEIGHT / 2.0
     flappy.vel = flappy.vel_x = flappy.angle = 0.0
     score = 0
-    run_timer = bg_long_scroll = bg_scroll = ground_scroll = 0.0
+    run_timer = bg_long_scroll = bg_scroll = ground_scroll = pipe_motion_phase = 0.0
+    score_scale = 1.0
     shake_duration = flash_alpha = restart_delay = 0.0
     global flap_cooldown
     flap_cooldown = 0.0
@@ -251,31 +275,41 @@ def reset_game(from_menu=True):
 class Bird(pygame.sprite.Sprite):
     def __init__(self, x, y):
         super().__init__()
-        self.index = self.animation_timer = self.hover_timer = self.vel = self.vel_x = self.angle = 0
+        self.index = 0
+        self.animation_timer = 0.0
+        self.hover_timer = 0.0
+        self.vel = 0.0
+        self.vel_x = 0.0
+        self.angle = 0.0
         self.image = BIRD_ROTATION_CACHE[0][0]
         self.mask = BIRD_MASK_CACHE[0][0]
-        self.rect = self.image.get_rect(center=(x, y))
-        self.px, self.py = float(self.rect.x), float(self.rect.y)
+        self.rect = get_frect(self.image, center=(x, y))
 
     def update(self, dt):
         if game_state == STATE_INIT:
             self.hover_timer += dt
-            self.py = (SCREEN_HEIGHT / 2.0) + math.sin(self.hover_timer * 8.0) * 15.0 - (BIRD_PAD_SIZE / 2.0)
+            self.rect.centery = (SCREEN_HEIGHT / 2.0) + math.sin(self.hover_timer * 8.0) * 15.0
             self.animation_timer += dt
             if self.animation_timer > 0.1:
                 self.animation_timer, self.index = 0.0, (self.index + 1) % 3
         else:
             eff_g = GRAVITY * (0.25 if grace_timer > 0 else 1.0)
             self.vel = min(self.vel + eff_g * dt, MAX_FALL_SPEED)
-            if self.rect.bottom < GROUND_LEVEL:
-                self.py += self.vel * dt
-                self.px += self.vel_x * dt
-                if game_state == STATE_GAMEOVER:
-                    self.vel_x *= (1.0 - 5.0 * dt)
-            else:
-                self.rect.bottom = GROUND_LEVEL
-                self.py = float(self.rect.y)
-                self.vel = self.vel_x = 0
+            
+            # Move bird directly using FRect
+            self.rect.y += self.vel * dt
+            self.rect.x += self.vel_x * dt
+            
+            # Visual Snapping to Ground
+            m_rects = self.mask.get_bounding_rects()
+            v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
+            v_bottom = self.rect.y + v_bottom_local
+            
+            if v_bottom >= GROUND_LEVEL:
+                # Sink 8 pixels for the "beak in ground" look and stop all movement
+                self.rect.y = float(GROUND_LEVEL - v_bottom_local + 8.0)
+                self.vel = 0.0
+                self.vel_x = 0.0
 
         if game_state == STATE_PLAYING:
             fs = max(0.04, 0.1 + (self.vel / 3000.0)
@@ -290,56 +324,73 @@ class Bird(pygame.sprite.Sprite):
             self.angle += (target_a - self.angle) * ls * dt
             self.angle = max(-80, min(20, self.angle))
         elif game_state == STATE_GAMEOVER:
-            if self.rect.bottom < GROUND_LEVEL:
-                self.angle -= 800 * dt
+            # Check if we are above ground to continue tumbling
+            m_rects = self.mask.get_bounding_rects()
+            v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
+            if self.rect.y + v_bottom_local < GROUND_LEVEL:
+                self.angle -= 900.0 * dt # Faster tumble during fall
             else:
-                self.angle += (-90 - self.angle) * 10.0 * dt
+                # Once on ground, settle beak-down (-90 degrees)
+                self.angle = -90.0
 
         sa = int(self.angle) % 360
         self.image = BIRD_ROTATION_CACHE[self.index][sa]
         self.mask = BIRD_MASK_CACHE[self.index][sa]
-        self.rect.x, self.rect.y = int(self.px), int(self.py)
 
 
 class Pipe(pygame.sprite.Sprite):
-    def __init__(self, x, y, pos, img, mask, gap, offset, freq):
+    def __init__(self, x, y, pos, img, mask, gap, phase, freq):
         super().__init__()
         self.image, self.mask, self.pos = img, mask, pos
         if pos == 1:
-            self.rect = self.image.get_rect(bottomleft=(x, y - gap / 2))
+            self.rect = get_frect(self.image, bottomleft=(x, y - gap / 2.0))
         else:
-            self.rect = self.image.get_rect(topleft=(x, y + gap / 2))
-        self.px, self.py = float(self.rect.x), float(self.rect.y)
-        self.phase, self.freq, self.base_y = offset, freq, self.py
-        self.amp, self.scored = 0.0, False
+            self.rect = get_frect(self.image, topleft=(x, y + gap / 2.0))
+        self.phase, self.freq, self.base_y = phase, freq, self.rect.y
+        self.scored = False
+        self.current_amp = 0.0
 
     def update(self, dt, speed):
-        self.px -= speed * dt
-        if score >= 20 and self.rect.left < SCREEN_WIDTH:
-            t_amp = min((score - 20) * 5 + 10, 50)
-            if self.amp < t_amp:
-                self.amp += 20 * dt
-            self.phase += dt * self.freq * 1.5
-            self.py = self.base_y + math.sin(self.phase) * self.amp
-        self.rect.x, self.rect.y = int(self.px), int(self.py)
-        if self.rect.right < 0:
+        self.rect.x -= speed * dt
+        
+        # Calculate target amplitude based on score
+        target_amp = 0.0
+        if score >= 5:
+            target_amp = min((score - 5) * 4.0 + 20.0, 80.0) * SCALE
+        
+        # Smoothly ramp the amplitude to prevent sudden jumps
+        self.current_amp += (target_amp - self.current_amp) * dt * 2.5
+        
+        if self.current_amp > 0.1:
+            self.phase += dt * self.freq * 2.2 # Graceful oscillation speed
+            self.rect.y = self.base_y + math.sin(self.phase) * self.current_amp
+            
+        if self.rect.right < -100.0:
             self.kill()
 
 
 class Button:
     def __init__(self, x, y, image):
         self.img = image
-        self.rect = self.img.get_rect(topleft=(x, y))
-        self.p_img = pygame.transform.scale(
-            image, (int(image.get_width()*0.9), int(image.get_height()*0.9)))
-        self.p_rect = self.p_img.get_rect(center=self.rect.center)
+        self.rect = get_frect(self.img, topleft=(x, y))
+        self._update_pressed_img()
         self.pressed = False
+
+    def _update_pressed_img(self):
+        self.p_img = pygame.transform.smoothscale(
+            self.img, (int(self.img.get_width()*0.9), int(self.img.get_height()*0.9)))
+        self.p_rect = get_frect(self.p_img, center=self.rect.center)
+
+    def change_image(self, new_image):
+        if self.img != new_image:
+            self.img = new_image
+            self._update_pressed_img()
 
     def handle_event(self, e):
         triggered = False
         ev_pos = getattr(e, 'pos', pygame.mouse.get_pos())
         if e.type in (pygame.FINGERDOWN, pygame.FINGERUP):
-            ev_pos = (int(e.x * SCREEN_WIDTH), int(e.y * SCREEN_HEIGHT))
+            ev_pos = (e.x * SCREEN_WIDTH, e.y * SCREEN_HEIGHT)
         over = self.rect.collidepoint(ev_pos)
         if e.type in (MOUSEBUTTONDOWN, pygame.FINGERDOWN):
             if over:
@@ -364,8 +415,7 @@ class Particle(pygame.sprite.Sprite):
         super().__init__()
         self.active = False
         self.image = pygame.Surface((1, 1))
-        self.rect = self.image.get_rect()
-        self.px = self.py = 0.0
+        self.rect = get_frect(self.image)
 
     def reset(self, x, y, color):
         size = random.randint(4, 8)
@@ -374,10 +424,11 @@ class Particle(pygame.sprite.Sprite):
             s = pygame.Surface((size, size), pygame.SRCALPHA)
             pygame.draw.circle(s, color, (size//2, size//2), size//2)
             Particle.CACHE[key] = s
-        self.image = Particle.CACHE[key]
-        self.rect = self.image.get_rect(center=(x, y))
-        self.px, self.py = float(self.rect.x), float(self.rect.y)
-        self.vx, self.vy = random.uniform(-150, 150), random.uniform(-150, 150)
+        
+        # Must copy to avoid shared alpha state between particles
+        self.image = Particle.CACHE[key].copy()
+        self.rect = get_frect(self.image, center=(x, y))
+        self.vx, self.vy = random.uniform(-200.0, 200.0), random.uniform(-200.0, 200.0)
         self.life = 1.0
         self.active = True
 
@@ -385,13 +436,13 @@ class Particle(pygame.sprite.Sprite):
         if not self.active:
             return
         self.life -= dt
-        self.px += self.vx * dt
-        self.py += self.vy * dt
-        self.rect.x, self.rect.y = int(self.px), int(self.py)
+        self.rect.x += self.vx * dt
+        self.rect.y += self.vy * dt
         if self.life <= 0:
             self.active = False
             self.kill()
         else:
+            # High-precision alpha fade
             self.image.set_alpha(int(255 * self.life))
 
 
@@ -424,8 +475,8 @@ theme_btn = Button(SCREEN_WIDTH//2 - theme_img.get_width() //
                    2, SCREEN_HEIGHT - int(240 * SCALE), theme_img)
 pause_btn = Button(int(20 * SCALE), int(20 * SCALE), pause_img)
 # Global State
-exit_timer = ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
-trigger_timer = frame_count = grace_timer = flap_cooldown = 0
+exit_timer = ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0.0
+trigger_timer = frame_count = grace_timer = flap_cooldown = pipe_motion_phase = score_scale = 1.0
 next_action = None
 screen_touch_start_on_button = False
 SINE_TABLE = [math.sin(i * math.pi / 180) for i in range(360)]
@@ -442,11 +493,16 @@ paused_text_surf = render_score("PAUSED", ORANGE)
 paused_text_rect = paused_text_surf.get_rect(center=PAUSED_CENTER)
 
 
-def handle_jump():
+def handle_jump(do_flap=True):
     global game_state, grace_timer, flap_cooldown
-    if flap_cooldown <= 0:
+    # If we are unpausing without a flap, we ignore the cooldown
+    can_act = (flap_cooldown <= 0) if do_flap else True
+    
+    if can_act:
         grace_timer = 0
-        flap_cooldown = 0.01
+        if do_flap:
+            flap_cooldown = 0.05
+        
         if game_state == STATE_INIT:
             game_state = STATE_PLAYING
             music_channel.play(music_fx, loops=-1)
@@ -455,7 +511,8 @@ def handle_jump():
             game_state = STATE_PLAYING
             music_channel.unpause()
             swoosh_fx.play()
-        if game_state == STATE_PLAYING:
+            
+        if game_state == STATE_PLAYING and do_flap:
             flappy.vel = JUMP_STRENGTH
             flap_fx.play()
 
@@ -464,6 +521,7 @@ reset_game()
 gc.disable()
 run = True
 while run:
+    global score_scale, pipe_motion_phase
     dt = min(clock.tick(FPS) / 1000.0, 0.05)
     frame_count += 1
     ox = oy = 0
@@ -483,7 +541,7 @@ while run:
             screen_touch_start_on_button = False
             
             # Check if any button is pressed
-            if game_state == STATE_PLAYING:
+            if game_state in (STATE_PLAYING, STATE_PAUSED):
                 pause_btn.handle_event(e)
                 if pause_btn.pressed: screen_touch_start_on_button = True
             elif game_state == STATE_INIT:
@@ -502,10 +560,13 @@ while run:
 
         # Handle interaction end (Lift)
         if e.type in (MOUSEBUTTONUP, pygame.FINGERUP):
-            if game_state == STATE_PLAYING:
+            if game_state in (STATE_PLAYING, STATE_PAUSED):
                 if pause_btn.handle_event(e):
-                    trigger_timer, next_action = 0.05, "PAUSE"
-                    swoosh_fx.play()
+                    if game_state == STATE_PLAYING:
+                        trigger_timer, next_action = 0.05, "PAUSE"
+                        swoosh_fx.play()
+                    else:
+                        handle_jump(do_flap=False) # Resumes without flap
             
             elif game_state == STATE_INIT:
                 q_trig = quit_btn.handle_event(e)
@@ -609,8 +670,22 @@ while run:
                             break
                     if hit:
                         game_state = STATE_GAMEOVER
+                        # Backward projectile effect on pipe hit
+                        flappy.vel = -600.0
+                        flappy.vel_x = -400.0
                         break
-                if flappy.rect.top < 0 or flappy.rect.bottom >= GROUND_LEVEL:
+                
+                # Check ground/ceiling collision with visual precision
+                m_rects = flappy.mask.get_bounding_rects()
+                v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
+                if flappy.rect.top < 0:
+                    flappy.vel = 0.0 # Stop upward momentum immediately
+                    flappy.vel_x = 0.0
+                    game_state = STATE_GAMEOVER
+                    break
+                if flappy.rect.y + v_bottom_local >= GROUND_LEVEL:
+                    flappy.vel = 0.0
+                    flappy.vel_x = 0.0
                     game_state = STATE_GAMEOVER
                     break
 
@@ -620,13 +695,14 @@ while run:
         spawn_particles(flappy.rect.centerx, flappy.rect.centery,
                         WHITE, int(15 * intensity))
         shake_duration, flash_alpha, hit_played = SHAKE_DURATION * intensity, 255.0, True
-        if flappy.rect.bottom < GROUND_LEVEL:
+        
+        # Determine if we should play hit sounds
+        m_rects = flappy.mask.get_bounding_rects()
+        v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
+        if flappy.rect.y + v_bottom_local < GROUND_LEVEL:
             hit_fx.play()
             swoosh_fx.play()
-            if flappy.rect.top > 0:
-                flappy.vel, flappy.vel_x = -1200.0 * intensity, -600.0 * intensity
-            else:
-                flappy.vel = 0.0
+        
         die_fx.play()
         music_channel.stop()
         game_over_surf = render_score(
@@ -648,9 +724,21 @@ while run:
     if ground_scroll + bg_w < SCREEN_WIDTH:
         screen.blit(ground, (ground_scroll + bg_w + ox, GROUND_LEVEL + oy))
 
+    if game_state in (STATE_PLAYING, STATE_PAUSED):
+        pause_btn.change_image(play_img if game_state == STATE_PAUSED else pause_img)
+        pause_btn.draw(screen, ox, oy)
+
     if game_state == STATE_PLAYING:
+        pause_btn.change_image(play_img if game_state == STATE_PAUSED else pause_img)
         pause_btn.draw(screen, ox, oy)
         run_timer += dt
+        
+        # Smoothly interpolate score scale back to normal
+        if score_scale > 1.0:
+            score_scale += (1.0 - score_scale) * dt * 8.0
+        else:
+            score_scale = 1.0
+
         if grace_timer > 0:
             grace_timer -= dt
         diff = 1.0 - math.exp(-run_timer / 180.0)
@@ -663,27 +751,39 @@ while run:
         for p in pipe_group:
             if not p.scored and flappy.rect.left > p.rect.right and p.pos == -1:
                 score += 1
+                score_scale = 1.4 # Start pulse
                 score_surface = render_score(score)
                 score_rect = score_surface.get_rect(
                     center=(SCREEN_WIDTH // 2, SCORE_Y))
                 point_fx.play()
                 p.scored = True
+
         pipe_timer += dt
         if pipe_timer > current_pipe_freq:
             h = random.uniform(-150.0 * SCALE, 150.0 * SCALE)
             gap = max(200.0 * SCALE, current_pipe_gap +
                       random.uniform(-50.0 * SCALE, 50.0 * SCALE))
-            pipe_group.add(Pipe(SCREEN_WIDTH, SCREEN_HEIGHT / 2.0 + 
-                           h, -1, pipe_img, pipe_mask, gap, 0.0, 1.0))
-            pipe_group.add(Pipe(SCREEN_WIDTH, SCREEN_HEIGHT / 2.0 + h,
-                           1, pipe_img_flipped, pipe_mask_flipped, gap, 0.0, 1.0))
+            # Generate a random phase once per pair
+            p_phase = random.uniform(0, math.pi * 2.0)
+            spawn_x = float(SCREEN_WIDTH) + 20.0
+            
+            pipe_group.add(Pipe(spawn_x, SCREEN_HEIGHT / 2.0 + 
+                           h, -1, pipe_img, pipe_mask, gap, p_phase, 1.0))
+            pipe_group.add(Pipe(spawn_x, SCREEN_HEIGHT / 2.0 + h,
+                           1, pipe_img_flipped, pipe_mask_flipped, gap, p_phase, 1.0))
             pipe_timer = 0.0
 
     if game_state != STATE_PAUSED:
-        screen.blit(score_surface, (score_rect.x + ox, score_rect.y + oy))
+        if score_scale > 1.0:
+            scaled_surf = pygame.transform.smoothscale(score_surface, 
+                (int(score_surface.get_width() * score_scale), int(score_surface.get_height() * score_scale)))
+            scaled_rect = scaled_surf.get_rect(center=(SCREEN_WIDTH // 2, SCORE_Y))
+            screen.blit(scaled_surf, (scaled_rect.x + ox, scaled_rect.y + oy))
+        else:
+            screen.blit(score_surface, (score_rect.x + ox, score_rect.y + oy))
 
     if game_state == STATE_INIT:
-        fo = SINE_TABLE[(frame_count * 2) % 360] * (20 * SCALE)
+        fo = SINE_TABLE[int(frame_count * 2.0) % 360] * (20.0 * SCALE)
         screen.blit(menu_text_surf, (menu_text_rect.x + 
                     ox, menu_text_rect.y + oy + fo))
         quit_btn.draw(screen, ox, oy)
