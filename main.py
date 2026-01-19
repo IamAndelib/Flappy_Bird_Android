@@ -176,12 +176,12 @@ def reset_highscore():
         pass
     score_surface = render_score(0, WHITE)
 
-def reset_game(to_menu=False):
-    """Resets all game variables."""
+def reset_game(from_menu=True):
+    """Resets all game variables. from_menu=False triggers restart grace period."""
     global score, score_surface, score_rect, game_state, hit_played, die_played, pipe_timer, new_record_set
     global shake_duration, flash_alpha, run_timer, current_scroll_speed, current_pipe_gap, current_pipe_freq
     global bg_long_scroll, game_over_surf, pipe_move_speed, restart_delay, bg_scroll, ground_scroll
-    global just_restarted, trigger_timer
+    global just_restarted, trigger_timer, grace_timer
 
     pipe_group.empty()
     particle_group.empty()
@@ -198,14 +198,16 @@ def reset_game(to_menu=False):
     if hasattr(music_channel, "speed"):
         music_channel.speed = 1.0
     
-    if to_menu:
+    if from_menu:
         game_state = STATE_INIT
-        just_restarted = False
+        grace_timer = 0
     else:
-        music_channel.play(music_fx, loops=-1)
+        # Restart: Start playing immediately with a slow-fall grace period
         game_state = STATE_PLAYING
-        just_restarted = True
+        grace_timer = 1.5 # 1.5 seconds of slower fall
+        music_channel.play(music_fx, loops=-1)
     
+    just_restarted = False
     hit_played = die_played = new_record_set = False
     game_over_surf = None
     swoosh_fx.play()
@@ -240,7 +242,11 @@ class Bird(pygame.sprite.Sprite):
                 self.animation_timer, self.index = 0, (self.index + 1) % len(self.images)
         else:
             # Gravity and movement in pixels per second
-            self.vel = min(self.vel + GRAVITY * dt, MAX_FALL_SPEED)
+            eff_gravity = GRAVITY
+            if grace_timer > 0:
+                eff_gravity = GRAVITY * 0.25 # 75% less gravity for a slow fall
+            
+            self.vel = min(self.vel + eff_gravity * dt, MAX_FALL_SPEED)
             if self.rect.bottom < GROUND_LEVEL:
                 self.rect.y += self.vel * dt
                 self.rect.x += self.vel_x * dt
@@ -428,13 +434,14 @@ game_state = STATE_INIT
 exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
 trigger_timer = 0
+grace_timer = 0 # Slow-fall timer for restarts
 next_action = None # To store what to do after trigger_timer
 just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
 score_surface = render_score(score)
 score_rect = score_surface.get_rect(center=(SCREEN_WIDTH//2, 50))
-menu_text_surf = render_score("PRESS SPACE TO FLAP", ORANGE)
+menu_text_surf = render_score("TAP TO FLAP", ORANGE)
 paused_text_surf = render_score("PAUSED", ORANGE)
 hit_played = die_played = new_record_set = False
 game_over_surf = None
@@ -496,6 +503,9 @@ while run:
 
     if game_state == STATE_PLAYING:
         run_timer += dt
+        if grace_timer > 0:
+            grace_timer -= dt
+        
         # Faster ramp-up: Time constant reduced to 180s (3 mins).
         # Reaches ~63% difficulty at 3 mins, ~86% at 6 mins.
         scale = 1.0 - math.exp(-run_timer / 180.0)
@@ -625,9 +635,9 @@ while run:
             trigger_timer -= dt
             if trigger_timer <= 0:
                 if next_action == "RESTART":
-                    reset_game()
+                    reset_game(from_menu=False) # Start playing with grace
                 elif next_action == "MENU":
-                    reset_game(to_menu=True) # Now goes to STATE_INIT
+                    reset_game(from_menu=True) # Go to TAP TO FLAP
         elif restart_delay > 0:
             restart_btn.draw(render_surface)
             menu_btn.draw(render_surface)
@@ -677,6 +687,9 @@ while run:
                 jump_triggered = True
 
         if jump_triggered:
+            # Any jump cancels the slow-fall grace period
+            grace_timer = 0
+            
             if game_state == STATE_INIT:
                 game_state = STATE_PLAYING
                 swoosh_fx.play()
@@ -707,7 +720,7 @@ while run:
                     else:
                         exit_timer = 2.0
                 elif game_state == STATE_GAMEOVER:
-                    reset_game(to_menu=True)
+                    reset_game()
             if e.key in (K_RETURN, K_KP_ENTER):
                 if game_state == STATE_GAMEOVER:
                     reset_game()

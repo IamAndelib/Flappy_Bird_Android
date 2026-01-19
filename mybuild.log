@@ -155,7 +155,7 @@ options:
 [WARNING]: Please report any issues to the python-for-android issue tracker.
 [WARNING]: prerequisites.py is experimental and does not support all prerequisites yet.
 [WARNING]: Please report any issues to the python-for-android issue tracker.
-[1m[INFO][0m:    Will compile for the following archs: armeabi-v7a, arm64-v8a
+[1m[INFO][0m:    Will compile for the following archs: arm64-v8a, armeabi-v7a
 [1m[INFO][0m:    Found Android API target in $ANDROIDAPI: 31
 [1m[INFO][0m:    Available Android APIs are (31, 33)
 [1m[INFO][0m:    Requested API target 31 is available, continuing.
@@ -169,7 +169,7 @@ options:
 [1m[INFO][0m:    Of the existing distributions, the following meet the given requirements:
 [1m[INFO][0m:    	[32m[1mflappybird[0m: min API 21, includes recipes ([32mhostpython3, jpeg, libffi, openssl, png, sdl2_image, sdl2_mixer, sdl2_ttf, sqlite3, python3, sdl2, setuptools, cython, six, pygame, pyjnius, android[0m), built for archs ([34marm64-v8a, armeabi-v7a[0m)
 [1m[INFO][0m:    [1m[94mflappybird has compatible recipes, using this one[0m
-# Build the application #14
+# Build the application #15
 # Copy application source from /home/mimisriz/Flappy_Bird_Android
 # Create directory /home/mimisriz/Flappy_Bird_Android/.buildozer/android/app
 # Copy /home/mimisriz/Flappy_Bird_Android/main.py
@@ -206,7 +206,7 @@ options:
 [WARNING]: Please report any issues to the python-for-android issue tracker.
 [WARNING]: prerequisites.py is experimental and does not support all prerequisites yet.
 [WARNING]: Please report any issues to the python-for-android issue tracker.
-[1m[INFO][0m:    Will compile for the following archs: armeabi-v7a, arm64-v8a
+[1m[INFO][0m:    Will compile for the following archs: arm64-v8a, armeabi-v7a
 [1m[INFO][0m:    Found Android API target in $ANDROIDAPI: 31
 [1m[INFO][0m:    Available Android APIs are (31, 33)
 [1m[INFO][0m:    Requested API target 31 is available, continuing.
@@ -233,46 +233,44 @@ options:
 [1m[90m[DEBUG][39m[0m:   Create directory src/main/assets
 Compiling '/home/mimisriz/Flappy_Bird_Android/.buildozer/android/app/main.py'...
 Compiling '/home/mimisriz/Flappy_Bird_Android/.buildozer/android/app/sitecustomize.py'...
-[1m[90m[DEBUG][39m[0m:   Remove directory and subdirectory /tmp/p4a-extra-env-akec1kr8
+[1m[90m[DEBUG][39m[0m:   Remove directory and subdirectory /tmp/p4a-extra-env-pv0zljxk
 [1m[90m[DEBUG][39m[0m:   Remove directory and subdirectory src/main/res
 [1m[INFO][0m:    Detected highest available build tools version to be 36.1.0
 stty: 'standard input': Inappropriate ioctl for device
 [1m[90m[DEBUG][39m[0m:   [90m->[0m running gradlew clean assembleDebug[0m
 [1m[90m[DEBUG][39m[0m:   	
 [1m[90m[DEBUG][39m[0m:   	
-[1m[90m[DEBUG][39m[0m:   	[1A[1m> Connecting to Daemon[m[22D[1B[2A[1m<[0;1m-------------> 0% CONFIGURING [81ms][m[37D[1B[1m> root project > Resolve dependencies of :classpath[m[51D[1B[2A[1m<[0;32;1m=============[0;39;1m> 100% CONFIGURING [182ms][m[40D[1B[1m> Resolve dependencies of :classpath[m[0K[36D[1B[2A[1m<[0;32;1m=[0;39;1m------------> 12% EXECUTING [282ms][m[0K[37D[1B[1m> :checkDebugAarMetadata[m[0K[24D[1B[2A[0K
-[1m[90m[DEBUG][39m[0m:   	[1m> Task :processDebugMainManifest[m
+[1m[90m[DEBUG][39m[0m:   	[1A[1m> Connecting to Daemon[m[22D[1B[2A[1m<[0;1m-------------> 0% INITIALIZING [55ms][m[38D[1B[1m> Evaluating settings[m[0K[21D[1B[2A[1m<[0;1m-------------> 0% CONFIGURING [155ms][m[38D[1B[1m> root project > Resolve dependencies of :classpath[m[51D[1B[2A[1m<[0;1m-------------> 0% CONFIGURING [255ms][m[38D[1B[1m> root project[m[0K[14D[1B[2A[1m<[0;1m-------------> 0% EXECUTING [355ms][m[0K[36D[1B> IDLE[0K[6D[1B[2A[1m<[0;32;1m===[0;39;1m----------> 26% EXECUTING [455ms][m[37D[1B[1m> :parseDebugLocalResources > Resolve dependencies of :androidApis[m[66D[1B[2A[0K
+[1m[90m[DEBUG][39m[0m:   	[1m> Task :processDebugMainManifest[m[0K
 [1m[90m[DEBUG][39m[0m:   	/home/mimisriz/Flappy_Bird_Android/.buildozer/android/platform/build-arm64-v8a_armeabi-v7a/dists/flappybird/src/main/AndroidManifest.xml:53:18-50 Warning:
 [1m[90m[DEBUG][39m[0m:   	        android:extractNativeLibs should not be specified in this source AndroidManifest.xml file. See https://d.android.com/guide/topics/manifest/application-element#extractNativeLibs for more information.
 [1m[90m[DEBUG][39m[0m:   	The AGP Upgrade Assistant can remove the attribute from the AndroidManifest.xml file and update the build file accordingly. See https://d.android.com/studio/build/agp-upgrade-assistant for more information.
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	
-[1m[90m[DEBUG][39m[0m:   	[3A[1m<[0;32;1m=====[0;39;1m--------> 39% EXECUTING [382ms][m[37D[1B[1m> :processDebugManifestForPackage[m[33D[1B[1m> :mergeDebugShaders[m[20D[1B
-[1m[90m[DEBUG][39m[0m:   	
-[1m[90m[DEBUG][39m[0m:   	[5A[1m<[0;32;1m=======[0;39;1m------> 60% EXECUTING [482ms][m[37D[1B[1m> :processDebugResources[m[0K[24D[1B[1m> :compressDebugAssets[m[22D[1B[1m> :mergeExtDexDebug[m[19D[1B[1m> :mergeLibDexDebug[m[19D[1B[5A[1m<[0;32;1m========[0;39;1m-----> 65% EXECUTING [582ms][m[37D[3B[1m> :mergeDebugJniLibFolders[m[26D[1B> IDLE[0K[6D[1B[5A[1m<[0;32;1m========[0;39;1m-----> 65% EXECUTING [681ms][m[37D[5B[5A[1m<[0;32;1m=========[0;39;1m----> 70% EXECUTING [782ms][m[37D[1B[1m> :compileDebugJavaWithJavac[m[28D[2B[1m> :mergeDebugNativeLibs[m[0K[23D[2B[5A[1m<[0;32;1m=========[0;39;1m----> 73% EXECUTING [882ms][m[37D[2B> IDLE[0K[6D[3B[5A[1m<[0;32;1m=========[0;39;1m----> 75% EXECUTING [983ms][m[37D[3B> IDLE[0K[6D[2B[5A[1m<[0;32;1m=========[0;39;1m----> 75% EXECUTING [1s][m[0K[34D[5B[5A[0K
+[1m[90m[DEBUG][39m[0m:   	[3A[1m<[0;32;1m======[0;39;1m-------> 46% EXECUTING [555ms][m[37D[1B[1m> :processDebugManifestForPackage[m[33D[1B[1m> :mergeDebugAssets[m[19D[1B
+[1m[90m[DEBUG][39m[0m:   	[4A[1m<[0;32;1m========[0;39;1m-----> 65% EXECUTING [658ms][m[37D[1B[1m> :processDebugResources[m[0K[24D[1B[1m> :compressDebugAssets[m[22D[1B[1m> :mergeDebugJniLibFolders[m[26D[1B[4A[1m<[0;32;1m========[0;39;1m-----> 65% EXECUTING [754ms][m[37D[4B[4A[1m<[0;32;1m========[0;39;1m-----> 65% EXECUTING [854ms][m[37D[4B[4A[1m<[0;32;1m========[0;39;1m-----> 68% EXECUTING [954ms][m[37D[1B> IDLE[0K[6D[3B[4A[1m<[0;32;1m=========[0;39;1m----> 70% EXECUTING [1s][m[0K[34D[2B> IDLE[0K[6D[2B[4A[1m<[0;32;1m=========[0;39;1m----> 73% EXECUTING [1s][m[34D[3B[1m> :compileDebugJavaWithJavac[m[28D[1B[4A[0K
 [1m[90m[DEBUG][39m[0m:   	[1m> Task :compileDebugJavaWithJavac[m
 [1m[90m[DEBUG][39m[0m:   	Note: Some input files use or override a deprecated API.
 [1m[90m[DEBUG][39m[0m:   	Note: Recompile with -Xlint:deprecation for details.
-[1m[90m[DEBUG][39m[0m:   	[1B[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
-[1m[90m[DEBUG][39m[0m:   	[5A[1m<[0;32;1m==========[0;39;1m---> 78% EXECUTING [1s][m[34D[1B[1m> :dexBuilderDebug[m[18D[1B> IDLE[6D[1B> IDLE[6D[1B> IDLE[6D[1B[5A[1m<[0;32;1m===========[0;39;1m--> 87% EXECUTING [1s][m[34D[1B[1m> :mergeProjectDexDebug[m[23D[2B[1m> :stripDebugDebugSymbols[m[25D[2B[5A[1m<[0;32;1m===========[0;39;1m--> 90% EXECUTING [2s][m[34D[1B> IDLE[0K[6D[4B[5A[1m<[0;32;1m============[0;39;1m-> 92% EXECUTING [2s][m[34D[3B[1m> :packageDebug[m[0K[15D[2B[5A[1m<[0;32;1m============[0;39;1m-> 92% EXECUTING [3s][m[34D[5B[5A[0K
-[1m[90m[DEBUG][39m[0m:   	Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.
+[1m[90m[DEBUG][39m[0m:   	[0K
+[1m[90m[DEBUG][39m[0m:   	[4A[1m<[0;32;1m=========[0;39;1m----> 75% EXECUTING [1s][m[34D[1B> IDLE[6D[1B> IDLE[6D[1B[1m> :dexBuilderDebug[m[18D[1B[4A[1m<[0;32;1m=========[0;39;1m----> 75% EXECUTING [2s][m[34D[4B[4A[1m<[0;32;1m===========[0;39;1m--> 85% EXECUTING [2s][m[34D[2B[1m> :mergeDebugNativeLibs[m[23D[1B[1m> :mergeProjectDexDebug[m[23D[1B[4A[1m<[0;32;1m===========[0;39;1m--> 87% EXECUTING [2s][m[34D[3B> IDLE[0K[6D[1B[4A[1m<[0;32;1m===========[0;39;1m--> 90% EXECUTING [2s][m[34D[2B[1m> :stripDebugDebugSymbols[m[25D[2B[4A[1m<[0;32;1m===========[0;39;1m--> 90% EXECUTING [3s][m[34D[4B[4A[1m<[0;32;1m============[0;39;1m-> 92% EXECUTING [3s][m[34D[2B[1m> :packageDebug[m[0K[15D[2B[4A[1m<[0;32;1m============[0;39;1m-> 92% EXECUTING [4s][m[34D[4B[4A[1m<[0;32;1m============[0;39;1m-> 92% EXECUTING [5s][m[34D[4B[4A[1m<[0;32;1m============[0;39;1m-> 95% EXECUTING [5s][m[34D[2B[1m> :createDebugApkListingFileRedirect[m[36D[2B[4A[0K
+[1m[90m[DEBUG][39m[0m:   	Deprecated Gradle features were used in this build, making it incompatible with Gradle 9.0.[0K[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	You can use '--warning-mode all' to show the individual deprecation warnings and determine if they come from your own scripts or plugins.
 [1m[90m[DEBUG][39m[0m:   	
 [1m[90m[DEBUG][39m[0m:   	See https://docs.gradle.org/8.0.2/userguide/command_line_interface.html#sec:command_line_warnings
 [1m[90m[DEBUG][39m[0m:   	
-[1m[90m[DEBUG][39m[0m:   	[32;1mBUILD SUCCESSFUL[0;39m in 4s
+[1m[90m[DEBUG][39m[0m:   	[32;1mBUILD SUCCESSFUL[0;39m in 6s
 [1m[90m[DEBUG][39m[0m:   	33 actionable tasks: 33 executed
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
 [1m[90m[DEBUG][39m[0m:   	[0K
-[1m[90m[DEBUG][39m[0m:   	[0K
-[1m[90m[DEBUG][39m[0m:   	[5A[1m<[0;1m-------------> 0% WAITING[m[26D[1B> IDLE[6D[1B> IDLE[6D[1B> IDLE[6D[1B> IDLE[6D[1B[5A[2K[1B[2K[1B[2K[1B[2K[1B[2K[4A[0m[?12l[?25h
+[1m[90m[DEBUG][39m[0m:   	[4A[1m<[0;1m-------------> 0% WAITING[m[26D[1B> IDLE[6D[1B[1m> :createDebugApkListingFileRedirect[m[36D[1B> IDLE[6D[1B[4A[2K[1B[2K[1B[2K[1B[2K[3A[0m[?12l[?25h
 [1m[INFO][0m:    [36m<- directory context /home/mimisriz/Flappy_Bird_Android/.buildozer/android/platform/python-for-android[39m
 [1m[90m[DEBUG][39m[0m:   All possible dists: [<Distribution: name flappybird with recipes (hostpython3, jpeg, libffi, openssl, png, sdl2_image, sdl2_mixer, sdl2_ttf, sqlite3, python3, sdl2, setuptools, cython, six, pygame, pyjnius, android)>]
 [1m[90m[DEBUG][39m[0m:   Dist matching name and arch: [<Distribution: name flappybird with recipes (hostpython3, jpeg, libffi, openssl, png, sdl2_image, sdl2_mixer, sdl2_ttf, sqlite3, python3, sdl2, setuptools, cython, six, pygame, pyjnius, android)>]

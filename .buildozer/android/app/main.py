@@ -59,8 +59,8 @@ except Exception:
     font = pygame.font.SysFont('Arial', 60)
 
 # Game States
-STATE_MENU, STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED = 0, 1, 2, 3
-game_state = STATE_MENU
+STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3
+game_state = STATE_INIT
 
 # --- Utility Functions ---
 
@@ -176,12 +176,12 @@ def reset_highscore():
         pass
     score_surface = render_score(0, WHITE)
 
-def reset_game(to_menu=False):
-    """Resets all game variables."""
+def reset_game(from_menu=True):
+    """Resets all game variables. from_menu=False triggers restart grace period."""
     global score, score_surface, score_rect, game_state, hit_played, die_played, pipe_timer, new_record_set
     global shake_duration, flash_alpha, run_timer, current_scroll_speed, current_pipe_gap, current_pipe_freq
     global bg_long_scroll, game_over_surf, pipe_move_speed, restart_delay, bg_scroll, ground_scroll
-    global just_restarted, trigger_timer
+    global just_restarted, trigger_timer, grace_timer
 
     pipe_group.empty()
     particle_group.empty()
@@ -198,14 +198,16 @@ def reset_game(to_menu=False):
     if hasattr(music_channel, "speed"):
         music_channel.speed = 1.0
     
-    if to_menu:
+    if from_menu:
         game_state = STATE_INIT
-        just_restarted = False
+        grace_timer = 0
     else:
-        music_channel.play(music_fx, loops=-1)
+        # Restart: Start playing immediately with a slow-fall grace period
         game_state = STATE_PLAYING
-        just_restarted = True
+        grace_timer = 1.5 # 1.5 seconds of slower fall
+        music_channel.play(music_fx, loops=-1)
     
+    just_restarted = False
     hit_played = die_played = new_record_set = False
     game_over_surf = None
     swoosh_fx.play()
@@ -229,14 +231,22 @@ class Bird(pygame.sprite.Sprite):
                     idx, ang)] = img, get_shrunk_mask(img)
 
     def update(self, dt):
-        if game_state == STATE_MENU:
+        if game_state == STATE_INIT:
             self.hover_timer += dt
             self.rect.centery = (SCREEN_HEIGHT / 2) + \
                 math.sin(self.hover_timer * 8) * 15
             self.angle = 0
+            # Animation for wings while hovering
+            self.animation_timer += dt
+            if self.animation_timer > 0.1:
+                self.animation_timer, self.index = 0, (self.index + 1) % len(self.images)
         else:
             # Gravity and movement in pixels per second
-            self.vel = min(self.vel + GRAVITY * dt, MAX_FALL_SPEED)
+            eff_gravity = GRAVITY
+            if grace_timer > 0:
+                eff_gravity = GRAVITY * 0.25 # 75% less gravity for a slow fall
+            
+            self.vel = min(self.vel + eff_gravity * dt, MAX_FALL_SPEED)
             if self.rect.bottom < GROUND_LEVEL:
                 self.rect.y += self.vel * dt
                 self.rect.x += self.vel_x * dt
@@ -413,25 +423,25 @@ flappy = bird_group.sprite
 restart_btn = Button(SCREEN_WIDTH//2 - restart_img.get_width()//2, SCREEN_HEIGHT//2 - 80, restart_img)
 menu_btn = Button(SCREEN_WIDTH//2 - main_menu_img.get_width()//2, SCREEN_HEIGHT//2 + 20, main_menu_img)
 
-# Main Menu (Initial) Buttons
-new_game_btn = Button(SCREEN_WIDTH//2 - new_game_img.get_width()//2, SCREEN_HEIGHT//2 - 40, new_game_img)
-quit_btn = Button(SCREEN_WIDTH//2 - quit_img.get_width()//2, SCREEN_HEIGHT//2 + 60, quit_img)
+# Initial Screen Button (Quit only, at the bottom)
+quit_btn = Button(SCREEN_WIDTH//2 - quit_img.get_width()//2, SCREEN_HEIGHT - 150, quit_img)
 
 # Game States
-STATE_MENU, STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3, 4
+STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3
 game_state = STATE_INIT
 
 # Global State
 exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
 trigger_timer = 0
+grace_timer = 0 # Slow-fall timer for restarts
 next_action = None # To store what to do after trigger_timer
 just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
 score_surface = render_score(score)
 score_rect = score_surface.get_rect(center=(SCREEN_WIDTH//2, 50))
-menu_text_surf = render_score("PRESS SPACE TO FLAP", ORANGE)
+menu_text_surf = render_score("TAP TO FLAP", ORANGE)
 paused_text_surf = render_score("PAUSED", ORANGE)
 hit_played = die_played = new_record_set = False
 game_over_surf = None
@@ -493,6 +503,9 @@ while run:
 
     if game_state == STATE_PLAYING:
         run_timer += dt
+        if grace_timer > 0:
+            grace_timer -= dt
+        
         # Faster ramp-up: Time constant reduced to 180s (3 mins).
         # Reaches ~63% difficulty at 3 mins, ~86% at 6 mins.
         scale = 1.0 - math.exp(-run_timer / 180.0)
@@ -578,12 +591,12 @@ while run:
                            pipe_img_flipped, pipe_mask_flipped, random_gap, off, f))
             pipe_timer = 0
 
-    if game_state != STATE_GAMEOVER and game_state != STATE_PAUSED:
+    if game_state in (STATE_INIT, STATE_PLAYING, STATE_GAMEOVER):
         ground_scroll = (ground_scroll - current_scroll_speed*dt) % -35
         bg_scroll = (bg_scroll - current_bg_speed*dt) % -SCREEN_WIDTH
         bg_long_scroll = (bg_long_scroll - bg_long_speed*dt) % -1280
 
-    if game_state != STATE_MENU:
+    if game_state != STATE_PAUSED:
         if score_scale > 1.0:
             score_scale = max(1.0, score_scale - 2.0*dt)
             s = pygame.transform.scale(score_surface, (int(score_surface.get_width(
@@ -597,26 +610,17 @@ while run:
         float_offset = math.sin(pygame.time.get_ticks() * 0.005) * 10
         render_surface.blit(menu_text_surf, menu_text_surf.get_rect(
             center=(SCREEN_WIDTH//2, 150 + float_offset)))
-
-    elif game_state == STATE_MENU:
+        
         if trigger_timer > 0:
-            new_game_btn.draw(render_surface)
             quit_btn.draw(render_surface)
             trigger_timer -= dt
             if trigger_timer <= 0:
-                if next_action == "NEW_GAME":
-                    reset_highscore()
-                    reset_game()
-                elif next_action == "QUIT":
-                    run = False
+                run = False # Only action is QUIT here
         else:
-            if new_game_btn.draw(render_surface, evs):
-                trigger_timer, next_action = 0.2, "NEW_GAME"
-                swoosh_fx.play()
             if quit_btn.draw(render_surface, evs):
-                trigger_timer, next_action = 0.2, "QUIT"
+                trigger_timer = 0.2
                 swoosh_fx.play()
-                
+
     elif game_state == STATE_PAUSED:
         render_surface.blit(paused_text_surf, paused_text_surf.get_rect(
             center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 50)))
@@ -631,10 +635,9 @@ while run:
             trigger_timer -= dt
             if trigger_timer <= 0:
                 if next_action == "RESTART":
-                    reset_game()
+                    reset_game(from_menu=False) # Start playing with grace
                 elif next_action == "MENU":
-                    game_state = STATE_MENU # Go to the button menu
-                    trigger_timer = 0
+                    reset_game(from_menu=True) # Go to TAP TO FLAP
         elif restart_delay > 0:
             restart_btn.draw(render_surface)
             menu_btn.draw(render_surface)
@@ -675,19 +678,18 @@ while run:
         jump_triggered = False
         if e.type == KEYDOWN and e.key == K_SPACE:
             jump_triggered = True
-        if e.type == MOUSEBUTTONDOWN:
-            # On Android, we prefer FINGERDOWN for jumping, but MOUSEBUTTONDOWN is still okay for desktop
-            if not IS_ANDROID:
+        
+        # Accept both mouse and finger events for maximum compatibility
+        if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
+            v_pos = get_virtual_mouse_pos()
+            # Only trigger jump if we didn't touch the quit button
+            if not (game_state == STATE_INIT and quit_btn.rect.collidepoint(v_pos)):
                 jump_triggered = True
-        if e.type == pygame.FINGERDOWN:
-            # Only trigger jump if we didn't touch a button
-            # This is simplified - usually you'd check button collides here
-            # But since jump_triggered is only used in PLAYING/PAUSED below, 
-            # and MENU/GAMEOVER buttons are handled separately in the draw loop,
-            # we just need to ensure STATE_MENU doesn't jump.
-            jump_triggered = True
 
         if jump_triggered:
+            # Any jump cancels the slow-fall grace period
+            grace_timer = 0
+            
             if game_state == STATE_INIT:
                 game_state = STATE_PLAYING
                 swoosh_fx.play()
@@ -695,9 +697,6 @@ while run:
                 flappy.vel = JUMP_STRENGTH
                 flap_fx.play()
             elif game_state == STATE_PLAYING:
-                # If we just restarted via the button, the bird is already set to jump
-                # but we can also just let it jump again or ignore. 
-                # To make it feel responsive, we'll apply the jump.
                 flappy.vel = JUMP_STRENGTH
                 flap_fx.play()
                 just_restarted = False
@@ -715,18 +714,18 @@ while run:
                 elif game_state == STATE_PAUSED:
                     game_state = STATE_PLAYING
                     music_channel.unpause()
-                elif game_state == STATE_MENU:
+                elif game_state == STATE_INIT:
                     if exit_timer > 0:
                         run = False
                     else:
-                        exit_timer = 2.0  # Show exit message for 2 seconds
+                        exit_timer = 2.0
                 elif game_state == STATE_GAMEOVER:
                     reset_game()
             if e.key in (K_RETURN, K_KP_ENTER):
                 if game_state == STATE_GAMEOVER:
                     reset_game()
 
-    if exit_timer > 0 and game_state == STATE_MENU:
+    if exit_timer > 0 and game_state == STATE_INIT:
         exit_msg = font.render("TAP BACK AGAIN TO EXIT", True, WHITE)
         render_surface.blit(exit_msg, exit_msg.get_rect(
             center=(SCREEN_WIDTH//2, SCREEN_HEIGHT - 100)))
