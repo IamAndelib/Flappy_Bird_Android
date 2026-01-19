@@ -36,7 +36,39 @@ Android devices have thousands of different screen resolutions. Hardcoding `(800
 
 ---
 
-## 4. The Configuration (`buildozer.spec`)
+## 4. Android-Safe Coding Patterns
+
+Writing code that works on a desktop does not guarantee success on Android. To ensure your game launches and runs stably, you must adhere to these patterns in your `main.py`.
+
+### 4.1 Absolute Path Asset Loading
+On Android, the "Current Working Directory" can be unpredictable. Loading assets with relative paths like `pygame.image.load('img/hero.png')` will often fail with a `FileNotFoundError`.
+*   **The Fix**: Calculate the base path of your script and build absolute paths for everything.
+```python
+import os
+BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+
+def get_path(relative_path):
+    return os.path.join(BASE_PATH, relative_path)
+
+# Usage
+img = pygame.image.load(get_path('img/hero.png'))
+```
+
+### 4.2 Avoiding Fragile System Calls
+Some standard Pygame or Python calls are not implemented in the Android port and will crash the app instantly.
+*   **Don't Use**: `pygame.system.get_platform()` (use `os.environ` checks instead).
+*   **Don't Use**: Fragile `android` module calls like `android.wakelock()` without extensive compatibility checks.
+
+### 4.3 Stable Display Initialization
+While `pygame.SCALED` is convenient, it can cause native mutex crashes on certain hardware (especially Samsung devices using the Vulkan engine).
+*   **The Robust Approach**: Initialize a standard Fullscreen window and manually scale a "virtual" render surface to the screen dimensions using `pygame.transform.scale()`. This bypasses hardware-specific scaling bugs.
+
+### 4.4 Case Sensitivity
+Android's filesystem is case-sensitive (Linux-based). If your file is named `Bird.png` but your code loads `bird.png`, it will work on Windows but crash on Android. Always use lowercase for filenames to avoid this.
+
+---
+
+## 5. The Configuration (`buildozer.spec`)
 
 The `buildozer.spec` file controls the entire build. Key areas to focus on:
 
@@ -57,7 +89,7 @@ orientation = portrait
 
 ---
 
-## 5. Solving the "Host Flag Leakage" Problem
+## 6. Solving the "Host Flag Leakage" Problem
 
 The most common failure in Pygame Android builds is **Host Flag Leakage**. This happens when the build system accidentally picks up compilation flags intended for your Linux/Mac computer (like `-march=x86-64`) and tries to use them for an ARM phone.
 
@@ -70,7 +102,7 @@ If your build fails during the `pygame` compilation stage with "invalid architec
 
 ---
 
-## 6. The Build Lifecycle
+## 7. The Build Lifecycle
 
 1.  **Clean**: Always start fresh if you change architectures: `buildozer android clean`.
 2.  **Debug Build**: `buildozer android debug`. This generates a signed debug APK.
@@ -81,5 +113,5 @@ If your build fails during the `pygame` compilation stage with "invalid architec
 
 ---
 
-## 7. Conclusion
+## 8. Conclusion
 Building for Android with Pygame is highly rewarding but requires strict adherence to versioning and environment sanitization. By pinning **Cython 0.29.37**, using **NDK r25b**, and being prepared to **patch the pygame recipe** for host flag leakage, you can move from a desktop prototype to a mobile-ready APK with confidence.
