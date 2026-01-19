@@ -126,7 +126,10 @@ bg_night = load_img('img/bg_night.png')
 bg_long_day = load_img('img/bglong_day.png')
 bg_long_night = load_img('img/bglong_night.png')
 ground = load_img('img/ground.png')
-button_img = load_img('img/restart.png')
+restart_img = load_img('img/restart.png')
+main_menu_img = load_img('img/main_menu.png')
+new_game_img = load_img('img/new_game.png')
+quit_img = load_img('img/quit.png')
 pipe_img = load_img('img/pipe.png', True)
 pipe_img_flipped = pygame.transform.flip(pipe_img, False, True)
 BIRD_IMAGES = [load_img(f'img/bird{i}.png', True) for i in range(1, 4)]
@@ -162,18 +165,29 @@ except:
     high_score = 0
 
 
-def reset_game():
-    """Resets all game variables and starts a new round immediately."""
+def reset_highscore():
+    """Wipes the high score."""
+    global high_score, score_surface
+    high_score = 0
+    try:
+        with open(get_path('highscore.txt'), 'w') as f:
+            f.write("0")
+    except:
+        pass
+    score_surface = render_score(0, WHITE)
+
+def reset_game(to_menu=False):
+    """Resets all game variables."""
     global score, score_surface, score_rect, game_state, hit_played, die_played, pipe_timer, new_record_set
     global shake_duration, flash_alpha, run_timer, current_scroll_speed, current_pipe_gap, current_pipe_freq
     global bg_long_scroll, game_over_surf, pipe_move_speed, restart_delay, bg_scroll, ground_scroll
-    global just_restarted
+    global just_restarted, trigger_timer
 
     pipe_group.empty()
     particle_group.empty()
 
     flappy.rect.center = [100, SCREEN_HEIGHT // 2]
-    flappy.vel = flappy.vel_x = flappy.angle = score = run_timer = bg_long_scroll = bg_scroll = ground_scroll = pipe_move_speed = shake_duration = flash_alpha = restart_delay = 0
+    flappy.vel = flappy.vel_x = flappy.angle = score = run_timer = bg_long_scroll = bg_scroll = ground_scroll = pipe_move_speed = shake_duration = flash_alpha = restart_delay = trigger_timer = 0
     pipe_timer = PIPE_FREQ - 0.5
 
     score_surface = render_score(score, WHITE)
@@ -183,13 +197,17 @@ def reset_game():
     music_channel.stop()
     if hasattr(music_channel, "speed"):
         music_channel.speed = 1.0
-    music_channel.play(music_fx, loops=-1)
     
-    # Transition directly to PLAYING
-    game_state = STATE_PLAYING
+    if to_menu:
+        game_state = STATE_INIT
+        just_restarted = False
+    else:
+        music_channel.play(music_fx, loops=-1)
+        game_state = STATE_PLAYING
+        just_restarted = True
+    
     hit_played = die_played = new_record_set = False
     game_over_surf = None
-    just_restarted = True
     swoosh_fx.play()
 
 # --- Game Classes ---
@@ -389,12 +407,25 @@ bird_group = pygame.sprite.GroupSingle(Bird(100, SCREEN_HEIGHT//2))
 pipe_group = pygame.sprite.Group()
 particle_group = pygame.sprite.Group()
 flappy = bird_group.sprite
-button = Button(SCREEN_WIDTH//2 - 50, SCREEN_HEIGHT//2 - 100, button_img)
+
+# Buttons
+# Game Over Buttons (Reduced gap to 20 pixels)
+restart_btn = Button(SCREEN_WIDTH//2 - restart_img.get_width()//2, SCREEN_HEIGHT//2 - 80, restart_img)
+menu_btn = Button(SCREEN_WIDTH//2 - main_menu_img.get_width()//2, SCREEN_HEIGHT//2 + 20, main_menu_img)
+
+# Main Menu (Initial) Buttons
+new_game_btn = Button(SCREEN_WIDTH//2 - new_game_img.get_width()//2, SCREEN_HEIGHT//2 - 40, new_game_img)
+quit_btn = Button(SCREEN_WIDTH//2 - quit_img.get_width()//2, SCREEN_HEIGHT//2 + 60, quit_img)
+
+# Game States
+STATE_MENU, STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3, 4
+game_state = STATE_INIT
 
 # Global State
 exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
 trigger_timer = 0
+next_action = None # To store what to do after trigger_timer
 just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
 current_scroll_speed, current_bg_speed, bg_long_speed, current_pipe_gap, current_pipe_freq, score_scale = SCROLL_SPEED, BG_SCROLL_SPEED, BG_SCROLL_SPEED/2, PIPE_GAP, PIPE_FREQ, 1.0
@@ -561,11 +592,31 @@ while run:
         else:
             render_surface.blit(score_surface, score_rect)
 
-    if game_state == STATE_MENU:
-        # Floating effect instead of scaling
+    if game_state == STATE_INIT:
+        # Floating effect for "TAP TO FLAP"
         float_offset = math.sin(pygame.time.get_ticks() * 0.005) * 10
         render_surface.blit(menu_text_surf, menu_text_surf.get_rect(
             center=(SCREEN_WIDTH//2, 150 + float_offset)))
+
+    elif game_state == STATE_MENU:
+        if trigger_timer > 0:
+            new_game_btn.draw(render_surface)
+            quit_btn.draw(render_surface)
+            trigger_timer -= dt
+            if trigger_timer <= 0:
+                if next_action == "NEW_GAME":
+                    reset_highscore()
+                    reset_game()
+                elif next_action == "QUIT":
+                    run = False
+        else:
+            if new_game_btn.draw(render_surface, evs):
+                trigger_timer, next_action = 0.2, "NEW_GAME"
+                swoosh_fx.play()
+            if quit_btn.draw(render_surface, evs):
+                trigger_timer, next_action = 0.2, "QUIT"
+                swoosh_fx.play()
+                
     elif game_state == STATE_PAUSED:
         render_surface.blit(paused_text_surf, paused_text_surf.get_rect(
             center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 50)))
@@ -574,19 +625,27 @@ while run:
             render_surface.blit(game_over_surf, game_over_surf.get_rect(
                 center=(SCREEN_WIDTH//2, 120)))
         
-        # If we are in the middle of a trigger delay, just wait
         if trigger_timer > 0:
-            button.draw(render_surface) # Draw button in normal state
+            restart_btn.draw(render_surface)
+            menu_btn.draw(render_surface)
             trigger_timer -= dt
             if trigger_timer <= 0:
-                reset_game()
+                if next_action == "RESTART":
+                    reset_game()
+                elif next_action == "MENU":
+                    game_state = STATE_MENU # Go to the button menu
+                    trigger_timer = 0
         elif restart_delay > 0:
-            button.draw(render_surface)
+            restart_btn.draw(render_surface)
+            menu_btn.draw(render_surface)
             restart_delay -= 1
         else:
-            if button.draw(render_surface, evs):
-                trigger_timer = 0.2 # 0.2 second delay to show the button lift
-                swoosh_fx.play() # Play swoosh immediately on lift
+            if restart_btn.draw(render_surface, evs):
+                trigger_timer, next_action = 0.2, "RESTART"
+                swoosh_fx.play()
+            if menu_btn.draw(render_surface, evs):
+                trigger_timer, next_action = 0.2, "MENU"
+                swoosh_fx.play()
 
     if flash_alpha > 0:
         fs = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -611,8 +670,6 @@ while run:
     for e in evs:
         if e.type == QUIT:
             run = False
-        
-        # ... (rest of event loop)
 
         # Input Handling (Keyboard + Touch)
         jump_triggered = False
@@ -623,10 +680,15 @@ while run:
             if not IS_ANDROID:
                 jump_triggered = True
         if e.type == pygame.FINGERDOWN:
+            # Only trigger jump if we didn't touch a button
+            # This is simplified - usually you'd check button collides here
+            # But since jump_triggered is only used in PLAYING/PAUSED below, 
+            # and MENU/GAMEOVER buttons are handled separately in the draw loop,
+            # we just need to ensure STATE_MENU doesn't jump.
             jump_triggered = True
 
         if jump_triggered:
-            if game_state == STATE_MENU:
+            if game_state == STATE_INIT:
                 game_state = STATE_PLAYING
                 swoosh_fx.play()
                 music_channel.play(music_fx, loops=-1)
