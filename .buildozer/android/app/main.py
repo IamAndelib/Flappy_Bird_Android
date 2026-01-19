@@ -67,10 +67,8 @@ except Exception:
     ui_font = pygame.font.SysFont('Arial', 45)
 
 # Game States
-STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3
+STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT, STATE_COUNTDOWN = 0, 1, 2, 3, 4
 game_state = STATE_INIT
-
-# --- Utility Functions ---
 
 def get_virtual_mouse_pos():
     return pygame.mouse.get_pos()
@@ -105,8 +103,38 @@ def get_shrunk_mask(image, factor=0.92):
     return full_mask
 
 
+# --- Asset Enhancement ---
+def enhance_sprite(surf):
+    """Makes low-res sprites look sharp and vibrant without washing out colors."""
+    w, h = surf.get_size()
+    # Create a slightly larger surface for the "pop" effect
+    out = pygame.Surface((w + 2, h + 2), pygame.SRCALPHA)
+    
+    # 1. Add a crisp dark border (not just a shadow) to define edges
+    mask = pygame.mask.from_surface(surf)
+    # Very thin, dark outline
+    mask_surf = mask.to_surface(setcolor=(0, 0, 0, 180), unsetcolor=(0, 0, 0, 0))
+    for off in [(0, 1), (2, 1), (1, 0), (1, 2)]:
+        out.blit(mask_surf, off)
+        
+    # 2. Prepare the original sprite with a color boost
+    # We'll slightly increase saturation/brightness by blitting it over itself with ADD
+    temp_surf = surf.copy()
+    # Boost saturation: blit a faint version of itself over itself
+    temp_surf.blit(surf, (0, 0), special_flags=pygame.BLEND_RGBA_ADD)
+    # Tone it down so it's not neon, just "richer"
+    boosted_surf = pygame.Surface(surf.get_size(), pygame.SRCALPHA)
+    boosted_surf.blit(surf, (0, 0))
+    boosted_surf.blit(temp_surf, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+    
+    # 3. Blit the original (or slightly enriched) sprite in the middle
+    # To keep it simple and avoid tints, we use the original but with better edge definition
+    out.blit(surf, (1, 1))
+    
+    return out.convert_alpha()
+
 # --- Asset Loading ---
-def load_img(path, alpha=False, scale_to_h=None, scale_to_w=None, smooth=True):
+def load_img(path, alpha=False, scale_to_h=None, scale_to_w=None, smooth=True, enhance=False):
     abs_path = get_path(path)
     try:
         img = pygame.image.load(abs_path)
@@ -116,11 +144,20 @@ def load_img(path, alpha=False, scale_to_h=None, scale_to_w=None, smooth=True):
         if scale_to_h:
             ratio = scale_to_h / img.get_height()
             w = int(img.get_width() * ratio)
-            img = pygame.transform.smoothscale(img, (w, int(scale_to_h)))
+            if smooth:
+                img = pygame.transform.smoothscale(img, (w, int(scale_to_h)))
+            else:
+                img = pygame.transform.scale(img, (w, int(scale_to_h)))
         elif scale_to_w:
             ratio = scale_to_w / img.get_width()
             h = int(img.get_height() * ratio)
-            img = pygame.transform.smoothscale(img, (int(scale_to_w), h))
+            if smooth:
+                img = pygame.transform.smoothscale(img, (int(scale_to_w), h))
+            else:
+                img = pygame.transform.scale(img, (int(scale_to_w), h))
+        
+        if enhance:
+            img = enhance_sprite(img)
             
         return img
     except Exception:
@@ -138,16 +175,34 @@ ground_h = SCREEN_HEIGHT - GROUND_LEVEL + 100
 ground = load_img('img/ground.png', scale_to_h=ground_h)
 
 # Game Objects
-pipe_img = load_img('img/pipe.png', True, scale_to_w=int(SCREEN_WIDTH * 0.16)) # ~115px
+# Pipes look better with standard 'scale' to keep vertical lines crisp
+pipe_img = load_img('img/pipe.png', True, scale_to_w=int(SCREEN_WIDTH * 0.16), smooth=False, enhance=True) 
 pipe_img_flipped = pygame.transform.flip(pipe_img, False, True)
 
-# Bird: 90% of previous size (0.12 * 0.9 = 0.108)
-BIRD_IMAGES = [load_img(f'img/bird{i}.png', True, scale_to_w=int(SCREEN_WIDTH * 0.108)) for i in range(1, 4)]
+# Bird: Balanced size with HD enhancement
+BIRD_IMAGES = [load_img(f'img/bird{i}.png', True, scale_to_w=int(SCREEN_WIDTH * 0.108), enhance=True) for i in range(1, 4)]
 BIRD_MASKS = [get_shrunk_mask(img, 0.95) for img in BIRD_IMAGES]
 pipe_mask = get_shrunk_mask(pipe_img, 0.98)
 pipe_mask_flipped = get_shrunk_mask(pipe_img_flipped, 0.98)
 
 # --- Button UI Generation ---
+def create_pause_button(size):
+    """Creates a shiny light green pause button."""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    # Base circle (Light Green)
+    pygame.draw.circle(surf, (144, 238, 144), (size//2, size//2), size//2)
+    # Add a "shine" highlight
+    highlight_surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    pygame.draw.ellipse(highlight_surf, (255, 255, 255, 150), (size*0.15, size*0.1, size*0.5, size*0.3))
+    surf.blit(highlight_surf, (0, 0))
+    # Border
+    pygame.draw.circle(surf, (100, 200, 100), (size//2, size//2), size//2, int(4 * SCALE))
+    # Pause bars
+    pw, ph = size // 6, size // 2
+    pygame.draw.rect(surf, WHITE, (size//2 - pw - int(5*SCALE), size//2 - ph//2, pw, ph), border_radius=2)
+    pygame.draw.rect(surf, WHITE, (size//2 + int(5*SCALE), size//2 - ph//2, pw, ph), border_radius=2)
+    return surf.convert_alpha()
+
 def create_text_button(text, width, color=ORANGE):
     """Creates a sharp, high-res button using the game font instead of low-res PNGs."""
     padding = 20
@@ -171,6 +226,7 @@ def create_text_button(text, width, color=ORANGE):
     return surf.convert_alpha()
 
 # Dynamically generate sharp buttons
+pause_img = create_pause_button(int(SCREEN_WIDTH * 0.12))
 restart_img = create_text_button("RESTART", int(SCREEN_WIDTH * 0.5))
 main_menu_img = create_text_button("MENU", int(SCREEN_WIDTH * 0.5), color=BLUE)
 quit_img = create_text_button("QUIT", int(SCREEN_WIDTH * 0.3), color=RED)
@@ -230,6 +286,8 @@ def reset_game(from_menu=True):
 
     flappy.rect.center = [100, SCREEN_HEIGHT // 2]
     flappy.vel = flappy.vel_x = flappy.angle = score = run_timer = bg_long_scroll = bg_scroll = ground_scroll = pipe_move_speed = shake_duration = flash_alpha = restart_delay = trigger_timer = 0
+    global flap_cooldown
+    flap_cooldown = 0
     pipe_timer = PIPE_FREQ - 0.5
 
     score_surface = render_score(score, WHITE)
@@ -376,30 +434,34 @@ class Button:
         self.pressed_rect = self.pressed_img.get_rect(center=self.rect.center)
         self.is_pressed = False
 
-    def draw(self, surface, events=None):
+    def handle_event(self, event):
         triggered = False
         v_pos = get_virtual_mouse_pos()
         over_button = self.rect.collidepoint(v_pos)
 
-        if events:
-            for e in events:
-                if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
-                    if over_button:
-                        self.is_pressed = True
-                
-                if e.type == MOUSEBUTTONUP or e.type == pygame.FINGERUP:
-                    # Only trigger if we were pressing it AND we lifted over the button
-                    if self.is_pressed and over_button:
-                        triggered = True
-                    self.is_pressed = False
+        if event.type == MOUSEBUTTONDOWN or event.type == pygame.FINGERDOWN:
+            if over_button:
+                self.is_pressed = True
+        
+        if event.type == MOUSEBUTTONUP or event.type == pygame.FINGERUP:
+            # Only trigger if we were pressing it AND we lifted over the button
+            if self.is_pressed and over_button:
+                triggered = True
+            self.is_pressed = False
+        
+        # If finger moves away while pressed, we can visually unpress 
+        # but technically we only reset is_pressed on lift (standard mobile behavior)
+        return triggered
+
+    def draw(self, surface):
+        v_pos = get_virtual_mouse_pos()
+        over_button = self.rect.collidepoint(v_pos)
 
         # Visuals: Show pressed state only if held AND finger is over the button
         if self.is_pressed and over_button:
             surface.blit(self.pressed_img, self.pressed_rect)
         else:
             surface.blit(self.img, self.rect)
-            
-        return triggered
 
 
 class Particle(pygame.sprite.Sprite):
@@ -467,6 +529,7 @@ menu_btn = Button(SCREEN_WIDTH//2 - main_menu_img.get_width()//2, SCREEN_HEIGHT/
 
 # Initial Screen Button (Quit only, at the bottom)
 quit_btn = Button(SCREEN_WIDTH//2 - quit_img.get_width()//2, SCREEN_HEIGHT - int(150 * SCALE), quit_img)
+pause_btn = Button(20, 20, pause_img)
 
 # Game States
 STATE_PLAYING, STATE_GAMEOVER, STATE_PAUSED, STATE_INIT = 0, 1, 2, 3
@@ -477,6 +540,7 @@ exit_timer = 0
 ground_scroll = bg_scroll = bg_long_scroll = run_timer = score = shake_duration = flash_alpha = restart_delay = 0
 trigger_timer = 0
 grace_timer = 0 # Slow-fall timer for restarts
+flap_cooldown = 0 # To prevent double-flaps on mobile
 next_action = None # To store what to do after trigger_timer
 just_restarted = False
 pipe_timer = PIPE_FREQ - 0.5
@@ -501,8 +565,73 @@ run = True
 while run:
     dt = min(clock.tick(FPS) / 1000.0, 0.05)
     evs = pygame.event.get()
+    
+    jump_triggered = False
+    for e in evs:
+        if e.type == QUIT:
+            run = False
+        
+        # 1. Back button / Escape
+        if e.type == KEYDOWN:
+            if e.key == K_ESCAPE or e.key == K_AC_BACK:
+                if game_state == STATE_PLAYING:
+                    game_state = STATE_PAUSED
+                    music_channel.pause()
+                    swoosh_fx.play()
+                elif game_state == STATE_PAUSED:
+                    game_state = STATE_PLAYING
+                    music_channel.unpause()
+                elif game_state == STATE_INIT:
+                    if exit_timer > 0: run = False
+                    else: exit_timer = 2.0
+                elif game_state == STATE_GAMEOVER:
+                    reset_game()
+            
+            if e.key == K_SPACE:
+                jump_triggered = True
+            
+            if e.key in (K_RETURN, K_KP_ENTER):
+                if game_state == STATE_GAMEOVER:
+                    reset_game()
+
+        # 2. UI Buttons & Touch Logic
+        if game_state == STATE_PLAYING:
+            if pause_btn.handle_event(e):
+                game_state = STATE_PAUSED
+                music_channel.pause()
+                swoosh_fx.play()
+            
+            if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
+                if not pause_btn.rect.collidepoint(get_virtual_mouse_pos()):
+                    jump_triggered = True
+
+        elif game_state == STATE_PAUSED:
+            if e.type == MOUSEBUTTONUP or e.type == pygame.FINGERUP:
+                game_state = STATE_COUNTDOWN
+                countdown_timer = 3.0
+                swoosh_fx.play()
+
+        elif game_state == STATE_INIT:
+            if quit_btn.handle_event(e):
+                trigger_timer = 0.2
+                swoosh_fx.play()
+            
+            if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
+                if not quit_btn.rect.collidepoint(get_virtual_mouse_pos()):
+                    jump_triggered = True
+
+        elif game_state == STATE_GAMEOVER:
+            if restart_btn.handle_event(e):
+                trigger_timer, next_action = 0.2, "RESTART"
+                swoosh_fx.play()
+            if menu_btn.handle_event(e):
+                trigger_timer, next_action = 0.2, "MENU"
+                swoosh_fx.play()
+
     if exit_timer > 0:
         exit_timer -= dt
+    if flap_cooldown > 0:
+        flap_cooldown -= dt
 
     ox = oy = 0
     if shake_duration > 0:
@@ -538,7 +667,9 @@ while run:
     pipe_group.draw(render_surface)
     particle_group.draw(render_surface)
     bird_group.draw(render_surface)
-    if game_state != STATE_PAUSED:
+    
+    # Freeze everything during Pause or Countdown
+    if game_state not in (STATE_PAUSED, STATE_COUNTDOWN):
         bird_group.update(dt)
         particle_group.update(dt)
     
@@ -548,6 +679,9 @@ while run:
         render_surface.blit(ground, (ground_scroll + ground.get_width(), GROUND_LEVEL))
 
     if game_state == STATE_PLAYING:
+        # Draw Pause Button
+        pause_btn.draw(render_surface)
+
         run_timer += dt
         if grace_timer > 0:
             grace_timer -= dt
@@ -582,8 +716,15 @@ while run:
                 point_fx.play()
                 p.scored = True
 
-        hit_pipe = pygame.sprite.spritecollide(
-            flappy, pipe_group, False, pygame.sprite.collide_mask)
+        # Optimization: Rect-first collision check
+        hit_pipe = False
+        potential_collisions = pygame.sprite.spritecollide(flappy, pipe_group, False)
+        if potential_collisions:
+            for p in potential_collisions:
+                if pygame.sprite.collide_mask(flappy, p):
+                    hit_pipe = True
+                    break
+        
         hit_top = flappy.rect.top < 0
         hit_ground = flappy.rect.bottom >= GROUND_LEVEL
 
@@ -664,13 +805,45 @@ while run:
             if trigger_timer <= 0:
                 run = False # Only action is QUIT here
         else:
-            if quit_btn.draw(render_surface, evs):
-                trigger_timer = 0.2
-                swoosh_fx.play()
+            quit_btn.draw(render_surface)
 
     elif game_state == STATE_PAUSED:
         render_surface.blit(paused_text_surf, paused_text_surf.get_rect(
-            center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - int(100 * SCALE))))
+            center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2 - 100)))
+
+    elif game_state == STATE_COUNTDOWN:
+        # Drawing already handled above (common elements)
+        # We just update the timer here
+        countdown_timer -= dt
+        if countdown_timer <= 0:
+            game_state = STATE_PLAYING
+            music_channel.unpause()
+        else:
+            # Pulsing effect logic
+            frac = countdown_timer % 1.0
+            if frac == 0: frac = 1.0
+            pulse_scale = 1.0 + 0.8 * math.sin(frac * math.pi)
+            count_num = int(math.ceil(countdown_timer))
+            count_text = str(count_num)
+            
+            # Render number and shadow for HD depth
+            count_surf = font.render(count_text, True, ORANGE)
+            shadow_surf = font.render(count_text, True, BLACK)
+            
+            cw, ch = count_surf.get_size()
+            sw, sh = int(cw * pulse_scale), int(ch * pulse_scale)
+            
+            # Smooth scale both for the pulse
+            scaled_count = pygame.transform.smoothscale(count_surf, (sw, sh))
+            scaled_shadow = pygame.transform.smoothscale(shadow_surf, (sw, sh))
+            
+            # Position in center
+            rect = scaled_count.get_rect(center=(SCREEN_WIDTH//2, SCREEN_HEIGHT//2))
+            # Shadow offset grows with the pulse for a "lifting" effect
+            shadow_off = int(6 * pulse_scale)
+            render_surface.blit(scaled_shadow, (rect.x + shadow_off, rect.y + shadow_off))
+            render_surface.blit(scaled_count, rect)
+
     elif game_state == STATE_GAMEOVER:
         if game_over_surf:
             # Draw the record/high score text below the main score counter
@@ -691,12 +864,8 @@ while run:
             menu_btn.draw(render_surface)
             restart_delay -= 1
         else:
-            if restart_btn.draw(render_surface, evs):
-                trigger_timer, next_action = 0.2, "RESTART"
-                swoosh_fx.play()
-            if menu_btn.draw(render_surface, evs):
-                trigger_timer, next_action = 0.2, "MENU"
-                swoosh_fx.play()
+            restart_btn.draw(render_surface)
+            menu_btn.draw(render_surface)
 
     if flash_alpha > 0:
         fs = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -710,60 +879,26 @@ while run:
     screen.blit(render_surface, (ox, oy))
     pygame.display.flip()
 
-    for e in evs:
-        if e.type == QUIT:
-            run = False
-
-        # Input Handling (Keyboard + Touch)
-        jump_triggered = False
-        if e.type == KEYDOWN and e.key == K_SPACE:
-            jump_triggered = True
+    if jump_triggered and flap_cooldown <= 0:
+        # Any jump cancels the slow-fall grace period
+        grace_timer = 0
+        flap_cooldown = 0.12 # 120ms cooldown is responsive but filters double-taps
         
-        # Accept both mouse and finger events for maximum compatibility
-        if e.type == MOUSEBUTTONDOWN or e.type == pygame.FINGERDOWN:
-            v_pos = get_virtual_mouse_pos()
-            # Only trigger jump if we didn't touch the quit button
-            if not (game_state == STATE_INIT and quit_btn.rect.collidepoint(v_pos)):
-                jump_triggered = True
-
-        if jump_triggered:
-            # Any jump cancels the slow-fall grace period
-            grace_timer = 0
-            
-            if game_state == STATE_INIT:
-                game_state = STATE_PLAYING
-                swoosh_fx.play()
-                music_channel.play(music_fx, loops=-1)
-                flappy.vel = JUMP_STRENGTH
-                flap_fx.play()
-            elif game_state == STATE_PLAYING:
-                flappy.vel = JUMP_STRENGTH
-                flap_fx.play()
-                just_restarted = False
-            elif game_state == STATE_PAUSED:
-                game_state = STATE_PLAYING
-                music_channel.unpause()
-                flappy.vel = JUMP_STRENGTH
-                flap_fx.play()
-
-        if e.type == KEYDOWN:
-            if e.key == K_ESCAPE or e.key == K_AC_BACK:
-                if game_state == STATE_PLAYING:
-                    game_state = STATE_PAUSED
-                    music_channel.pause()
-                elif game_state == STATE_PAUSED:
-                    game_state = STATE_PLAYING
-                    music_channel.unpause()
-                elif game_state == STATE_INIT:
-                    if exit_timer > 0:
-                        run = False
-                    else:
-                        exit_timer = 2.0
-                elif game_state == STATE_GAMEOVER:
-                    reset_game()
-            if e.key in (K_RETURN, K_KP_ENTER):
-                if game_state == STATE_GAMEOVER:
-                    reset_game()
+        if game_state == STATE_INIT:
+            game_state = STATE_PLAYING
+            swoosh_fx.play()
+            music_channel.play(music_fx, loops=-1)
+            flappy.vel = JUMP_STRENGTH
+            flap_fx.play()
+        elif game_state == STATE_PLAYING:
+            flappy.vel = JUMP_STRENGTH
+            flap_fx.play()
+            just_restarted = False
+        elif game_state == STATE_PAUSED:
+            game_state = STATE_PLAYING
+            music_channel.unpause()
+            flappy.vel = JUMP_STRENGTH
+            flap_fx.play()
 
     if exit_timer > 0 and game_state == STATE_INIT:
         exit_msg = font.render("TAP BACK AGAIN TO EXIT", True, WHITE)
