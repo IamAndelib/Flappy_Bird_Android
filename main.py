@@ -243,6 +243,8 @@ def reset_game(from_menu=True):
     gc.collect()
     pipe_group.empty()
     particle_group.empty()
+    for p in particle_pool:
+        p.active = False
     # Correctly reset bird position using its class attributes
     flappy.rect.centerx = 100.0
     flappy.rect.centery = SCREEN_HEIGHT / 2.0
@@ -665,61 +667,61 @@ while run:
             if game_state == STATE_PLAYING:
                 pipe_group.update(sub_dt, current_scroll_speed)
                 cols = pygame.sprite.spritecollide(flappy, pipe_group, False)
+                hit_type = None
+                
+                # 1. Pipe Collision
                 if cols:
-                    hit = False
                     for p in cols:
                         if pygame.sprite.collide_mask(flappy, p):
-                            hit = True
+                            hit_type = "PIPE"
                             break
-                    if hit:
-                        game_state = STATE_GAMEOVER
-                        
-                        # Dynamic Collision Logic
-                        impact_v = math.hypot(current_scroll_speed, flappy.vel)
-                        i_factor = impact_v / SCROLL_SPEED
-                        
-                        # Projectile Physics (Bounce back)
-                        flappy.vel = - (abs(flappy.vel) * 0.4 + 300.0)
-                        flappy.vel_x = - (current_scroll_speed * 0.8 + 200.0) * (0.5 + i_factor * 0.5)
-                        
-                        # Effects
-                        current_shake_intensity = 20.0 * i_factor
-                        shake_duration = SHAKE_DURATION * (0.5 + i_factor * 0.5)
-                        flash_alpha = 255.0
-                        spawn_particles(flappy.rect.centerx, flappy.rect.centery, WHITE, int(25 * i_factor), speed_mult=i_factor)
-                        
-                        hit_fx.play()
-                        die_fx.play()
-                        hit_played = True
-                        break
-                
-                # Check ground/ceiling collision with visual precision
-                m_rects = flappy.mask.get_bounding_rects()
-                v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
-                if flappy.rect.top < 0:
-                    flappy.vel = 0.0 # Stop upward momentum immediately
-                    flappy.vel_x = 0.0
+
+                # 2. Ceiling Collision
+                if not hit_type:
+                    m_rects = flappy.mask.get_bounding_rects()
+                    v_top_local = m_rects[0].top if m_rects else 0
+                    if flappy.rect.y + v_top_local <= 0:
+                        hit_type = "CEILING"
+                        flappy.rect.y = -v_top_local
+
+                # 3. Ground Collision
+                if not hit_type:
+                    m_rects = flappy.mask.get_bounding_rects()
+                    v_bottom_local = m_rects[0].bottom if m_rects else BIRD_PAD_SIZE
+                    if flappy.rect.y + v_bottom_local >= GROUND_LEVEL:
+                        hit_type = "GROUND"
+                        flappy.rect.y = float(GROUND_LEVEL - v_bottom_local + 8.0)
+
+                if hit_type:
                     game_state = STATE_GAMEOVER
                     
-                    # Ceiling Hit Effects
-                    current_shake_intensity = 10.0
-                    shake_duration = 0.2
-                    hit_fx.play(); die_fx.play(); hit_played = True
-                    break
+                    # Calculate Normalized Intensity (0.0 to ~2.0)
+                    speed_ratio = current_scroll_speed / SCROLL_SPEED
+                    impact_energy = math.hypot(current_scroll_speed, abs(flappy.vel))
+                    intensity = min(2.0, impact_energy / 800.0) # Cap at 2.0
                     
-                if flappy.rect.y + v_bottom_local >= GROUND_LEVEL:
-                    # Impact calc
-                    i_factor = max(1.0, abs(flappy.vel) / 500.0)
-                    
-                    flappy.vel = 0.0
-                    flappy.vel_x = 0.0
-                    game_state = STATE_GAMEOVER
-                    
-                    # Ground Hit Effects
-                    current_shake_intensity = 20.0 * i_factor
-                    shake_duration = SHAKE_DURATION * i_factor
+                    # Physics Responses
+                    if hit_type == "PIPE":
+                        flappy.vel = - (abs(flappy.vel) * 0.3 + 200.0)
+                        flappy.vel_x = - (current_scroll_speed * 0.5 + 100.0) * (0.5 + intensity * 0.5)
+                    elif hit_type == "CEILING":
+                        flappy.vel = 0.0
+                        flappy.vel_x = 0.0
+                    elif hit_type == "GROUND":
+                        flappy.vel = 0.0
+                        flappy.vel_x = 0.0
+
+                    # Unified Effects
+                    current_shake_intensity = min(30.0, 15.0 * intensity)
+                    shake_duration = min(0.6, SHAKE_DURATION * (0.4 + intensity * 0.4))
                     flash_alpha = 255.0
-                    spawn_particles(flappy.rect.centerx, flappy.rect.bottom - 10, WHITE, int(20 * i_factor), speed_mult=i_factor)
+                    
+                    p_count = int(min(60, 25 * intensity))
+                    p_pos = (flappy.rect.centerx, flappy.rect.centery)
+                    if hit_type == "GROUND": p_pos = (flappy.rect.centerx, flappy.rect.bottom - 10)
+                    elif hit_type == "CEILING": p_pos = (flappy.rect.centerx, flappy.rect.top + 10)
+                    
+                    spawn_particles(p_pos[0], p_pos[1], WHITE, p_count, speed_mult=intensity)
                     
                     hit_fx.play()
                     die_fx.play()
@@ -728,12 +730,8 @@ while run:
 
     if game_state == STATE_GAMEOVER:
         if not hit_played:
-            restart_delay = 0.16
-            intensity = current_scroll_speed / SCROLL_SPEED
-            spawn_particles(flappy.rect.centerx, flappy.rect.centery,
-                            WHITE, int(15 * intensity))
-            shake_duration, flash_alpha, hit_played = SHAKE_DURATION * intensity, 255.0, True
-            hit_fx.play(); die_fx.play()
+            # Fallback if something weird happens, though above logic covers all cases
+            hit_played = True
 
         if game_over_surf is None:
             restart_delay = 0.16
