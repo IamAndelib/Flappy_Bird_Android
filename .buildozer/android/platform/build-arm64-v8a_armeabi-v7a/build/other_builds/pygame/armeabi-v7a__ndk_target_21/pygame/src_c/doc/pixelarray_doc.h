@@ -1,0 +1,13 @@
+/* Auto generated file: with make_docs.py .  Docs go in docs/reST/ref/ . */
+#define DOC_PIXELARRAY "PixelArray(Surface) -> PixelArray\npygame object for direct pixel access of surfaces"
+#define DOC_PIXELARRAY_SURFACE "surface -> Surface\nGets the Surface the PixelArray uses."
+#define DOC_PIXELARRAY_ITEMSIZE "itemsize -> int\nReturns the byte size of a pixel array item"
+#define DOC_PIXELARRAY_NDIM "ndim -> int\nReturns the number of dimensions."
+#define DOC_PIXELARRAY_SHAPE "shape -> tuple of int's\nReturns the array size."
+#define DOC_PIXELARRAY_STRIDES "strides -> tuple of int's\nReturns byte offsets for each array dimension."
+#define DOC_PIXELARRAY_MAKESURFACE "make_surface() -> Surface\nCreates a new Surface from the current PixelArray."
+#define DOC_PIXELARRAY_REPLACE "replace(color, repcolor, distance=0, weights=(0.299, 0.587, 0.114)) -> None\nReplaces the passed color in the PixelArray with another one."
+#define DOC_PIXELARRAY_EXTRACT "extract(color, distance=0, weights=(0.299, 0.587, 0.114)) -> PixelArray\nExtracts the passed color from the PixelArray."
+#define DOC_PIXELARRAY_COMPARE "compare(array, distance=0, weights=(0.299, 0.587, 0.114)) -> PixelArray\nCompares the PixelArray with another one."
+#define DOC_PIXELARRAY_TRANSPOSE "transpose() -> PixelArray\nExchanges the x and y axis."
+#define DOC_PIXELARRAY_CLOSE "close() -> PixelArray\nCloses the PixelArray, and releases Surface lock."

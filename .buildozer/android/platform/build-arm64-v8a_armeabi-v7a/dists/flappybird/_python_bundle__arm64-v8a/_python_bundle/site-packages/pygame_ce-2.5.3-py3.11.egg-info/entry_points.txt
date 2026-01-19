@@ -1,0 +1,5 @@
+[briefcase.bootstraps]
+pygame_ce = pygame.__briefcase.pygame_ce:PygameCEGuiBootstrap
+
+[pyinstaller40]
+hook-dirs = pygame.__pyinstaller:get_hook_dirs

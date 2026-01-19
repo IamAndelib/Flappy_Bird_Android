@@ -1,0 +1,107 @@
+{%- extends "!layout.html" %}
+
+{%- if not theme_relbar %}
+{%-   block relbar1 %}{# Do not want bar across the top #}{% endblock %}
+{%- endif %}
+
+{#- Classic header with Snakey on the left, page links on the right.
+ #}
+{%- macro header() %}
+  <div class="header">
+	<div class="flex-container">
+	<div class="logo">
+	  <a href="{{ theme_home_uri }}">
+	    <img src="{{logo_url}}"/>
+	  </a>
+	  <h5>pygame-ce documentation</h5>
+	</div>
+	<div class="pagelinks">
+	  <div class="top">
+      <div class="nav-top-wrapper">
+        <a href="{{ theme_home_uri }}">Pygame-ce Home</a> ||
+        <a href="{{ pathto(master_doc) }}">Help Contents</a> ||
+        <a href="{{ pathto('genindex') }}">Reference Index</a>
+      </div>
+      <div class="searchbar-container">
+        <img class="theme-icon" data-theme="dark-theme" src="{{ pathto('_static/light-theme-icon.svg', 1) }}" width="24" height="24" alt="Light Theme Icon">
+        <img class="theme-icon" data-theme="light-theme" src="{{ pathto('_static/dark-theme-icon.svg', 1) }}" width="24" height="24" alt="Dark Theme Icon">
+        <form action="{{ pathto('search') }}" method="get" class="searchbar-form" style="display:inline;float:right;">
+          <input name="q" value="" type="text">
+          <img class="searchbar-button" src="{{ pathto('_static/searchbar-icon.svg', 1) }}" alt="Search">
+          <input class="searchbar-submit" value="search" type="submit">
+        </form>
+      </div>
+	  </div>
+	  <hr style="color:black;border-bottom:none;border-style: dotted;border-bottom-style:none;">
+{#-
+
+We render three sets of items based on how useful to most apps.
+
+#}
+{%- set basic = ['Color', 'display', 'draw', 'event', 'font', 'image', 'key', 'locals', 'mixer', 'mouse', 'music', 'pygame', 'Rect', 'Surface', 'time'] %}
+{%- set experimental = ['sdl2_video', 'controller', 'geometry', 'Window'] %}
+{%- set advanced = ['BufferProxy', 'freetype', 'gfxdraw', 'midi', 'PixelArray', 'pixelcopy', 'sndarray', 'surfarray', 'cursors', 'joystick', 'mask', 'math', 'sprite', 'transform'] %}
+{%- set hidden = ['sdl2_video', 'geometry'] %}
+{%-   if pyg_sections %}
+	  <p class="bottom"><b>Most useful stuff</b>:
+{%      set sep = joiner(" | \n") %}
+{%-     for section in pyg_sections %}
+{%-       set docname = section['docname'] %}
+{%-       set simpledocname = docname.split('/')[-1] %}
+{%-       set name = section['fullname'].split('.')[-1] %}
+{%-       set uri = pathto(docname, 1) + file_suffix -%}
+{%-       if name|lower != simpledocname %}
+{%-         set uri = uri + '#' + section['refid'] %}
+{%-       endif %}
+{%-       if name in basic %}
+{{- sep() }}	    <a href="{{ uri }}">{{ name }}</a>
+{%-       endif %}
+{%-     endfor %}
+	  </p>
+
+	  <p class="bottom"><b>Advanced stuff</b>:
+{%      set sep = joiner(" | \n") %}
+{%-     for section in pyg_sections %}
+{%-       set docname = section['docname'] %}
+{%-       set simpledocname = docname.split('/')[-1] %}
+{%-       set name = section['fullname'].split('.')[-1] %}
+{%-       set uri = pathto(docname, 1) + file_suffix -%}
+{%-       if name|lower != simpledocname %}
+{%-         set uri = uri + '#' + section['refid'] %}
+{%-       endif %}
+{%-       if name in advanced %}
+{{- sep() }}	    <a href="{{ uri }}">{{ name }}</a>
+{%-       endif %}
+{%-     endfor %}
+	  </p>
+
+	  <p class="bottom"><b>Other</b>:
+{%      set sep = joiner(" | \n") %}
+{%-     for section in pyg_sections %}
+{%-       set docname = section['docname'] %}
+{%-       set simpledocname = docname.split('/')[-1] %}
+{%-       set name = section['fullname'].split('.')[-1] %}
+{%-       set uri = pathto(docname, 1) + file_suffix -%}
+{%-       if name|lower != simpledocname %}
+{%-         set uri = uri + '#' + section['refid'] %}
+{%-       endif %}
+{%-       if name not in basic and name not in advanced and name not in hidden %}
+{{- sep() }}	    <a href="{{ uri }}">{{ name }}</a>
+{%-       endif %}
+{%-     endfor %}
+	  </p>
+
+
+{%-   endif  %}
+</div>
+</div>
+  </div>
+{%- endmacro %}
+
+{%- block body %}
+{%-   block section %}{% endblock %}
+
+<br /><br />
+<hr />
+<a href="{{ edit_on_github_url }}" rel="nofollow">{{ _('Edit on GitHub') }}</a>
+{%- endblock %}

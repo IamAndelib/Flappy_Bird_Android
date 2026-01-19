@@ -1,0 +1,29 @@
+# This is an "allowlist" used by mypy stubtest. The modules/classes/functions
+# listed here are not checked by the mypy stubtest program
+# This allowlist supports regex
+
+# cython files have this top level dunder
+pygame\._sdl2\..*\.__test__
+
+# cython classes have some special dunders for internal use, ignore that in
+# stubtest
+pygame\._sdl2\..*\.__pyx_.*__
+
+# don't look for stubs for examples or for tests
+pygame\.examples.*
+pygame\.tests.*
+
+# don't look for stubs for pyinstaller hook
+pygame\.__pyinstaller.*
+pygame\.__briefcase.*
+
+# don't look for stubs for these private modules either
+pygame\.ftfont
+pygame\.imageext
+pygame\.macosx
+pygame\.newbuffer
+pygame\.pkgdata
+pygame\.pypm
+pygame\._sdl2\.mixer
+pygame\.sysfont.*
+pygame\.docs.*
